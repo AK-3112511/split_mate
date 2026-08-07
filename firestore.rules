@@ -1,0 +1,82 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Helper function to check if the user is a member of the group
+    function isGroupMember(groupId) {
+      return request.auth != null && 
+        request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members;
+    }
+    
+    // 1. Users rules
+    match /users/{userId} {
+      allow read: if request.auth != null;
+      allow write: if request.auth != null && request.auth.uid == userId;
+      
+      match /expenses/{expenseId} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    }
+    
+    // 2. Friends relations rules
+    match /friends/{userId}/friendList/{friendId} {
+      allow read: if request.auth != null && 
+        (request.auth.uid == userId || request.auth.uid == friendId);
+        
+      allow create: if request.auth != null && 
+        (request.auth.uid == userId || request.auth.uid == friendId) &&
+        request.resource.data.status == 'pending' &&
+        request.resource.data.sentBy == request.auth.uid;
+        
+      allow update: if request.auth != null && 
+        (request.auth.uid == userId || request.auth.uid == friendId) &&
+        (
+          (resource.data.status == 'pending' && 
+           request.resource.data.status == 'accepted' && 
+           resource.data.sentBy != request.auth.uid) ||
+          (request.resource.data.status == resource.data.status)
+        );
+        
+      allow delete: if request.auth != null && 
+        (request.auth.uid == userId || request.auth.uid == friendId);
+    }
+    
+    // 3. Group Invites rules
+    match /group_invites/{inviteId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.resource.data.senderUid == request.auth.uid;
+      allow update: if request.auth != null && 
+        (resource.data.recipientUid == request.auth.uid || resource.data.senderUid == request.auth.uid);
+      allow delete: if request.auth != null && 
+        (resource.data.recipientUid == request.auth.uid || resource.data.senderUid == request.auth.uid);
+    }
+    
+    // 4. Groups rules
+    match /groups/{groupId} {
+      allow create: if request.auth != null;
+      allow read: if request.auth != null;
+      allow update: if request.auth != null;
+      allow delete: if false;
+
+      match /expenses/{expenseId} {
+        allow read: if isGroupMember(groupId);
+        allow create, update: if isGroupMember(groupId);
+        allow delete: if false;
+      }
+
+      match /activity/{activityId} {
+        allow read: if isGroupMember(groupId);
+        allow create, update: if request.auth != null;
+        allow delete: if false;
+      }
+    }
+
+    // 5. Notifications rules
+    match /notifications/{notificationId} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null && request.resource.data.senderUid == request.auth.uid;
+      allow update, delete: if request.auth != null;
+    }
+  }
+}
