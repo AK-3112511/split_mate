@@ -15,6 +15,13 @@ class ExpenseModel {
   final String? generatedFromTemplateId;
   final bool isCancelled;
 
+  // ── Group mirror fields (Section 12) ─────────────────────────────────────
+  // When this personal expense was automatically mirrored from a group expense,
+  // these fields identify the source so we never write duplicate mirrors.
+  final bool isFromGroup;
+  final String? sourceGroupId;
+  final String? sourceExpenseId;
+
   ExpenseModel({
     required this.id,
     required this.amount,
@@ -27,6 +34,9 @@ class ExpenseModel {
     this.lastGeneratedDate,
     this.generatedFromTemplateId,
     this.isCancelled = false,
+    this.isFromGroup = false,
+    this.sourceGroupId,
+    this.sourceExpenseId,
   });
 
   Map<String, dynamic> toMap() {
@@ -41,6 +51,10 @@ class ExpenseModel {
       'lastGeneratedDate': lastGeneratedDate != null ? Timestamp.fromDate(lastGeneratedDate!) : null,
       'generatedFromTemplateId': generatedFromTemplateId,
       'isCancelled': isCancelled,
+      // Group mirror fields
+      'isFromGroup': isFromGroup,
+      'sourceGroupId': sourceGroupId,
+      'sourceExpenseId': sourceExpenseId,
     };
   }
 
@@ -71,6 +85,9 @@ class ExpenseModel {
       lastGeneratedDate: lastGenDate,
       generatedFromTemplateId: map['generatedFromTemplateId'],
       isCancelled: map['isCancelled'] ?? false,
+      isFromGroup: map['isFromGroup'] ?? false,
+      sourceGroupId: map['sourceGroupId'],
+      sourceExpenseId: map['sourceExpenseId'],
     );
   }
 }

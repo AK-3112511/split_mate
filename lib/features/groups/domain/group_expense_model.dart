@@ -1,5 +1,40 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+// ── SplitEntry ────────────────────────────────────────────────────────────────
+// New schema: splits = { uid: { amountOwed: number, settled: bool } }
+// Replaces the old flat { uid: number } format.
+// recomputeBalances/settleUp are NEVER aware of the settled flag — they always
+// read only amountOwed via GroupExpenseModel.splitsAmountOwed.
+
+class SplitEntry {
+  final double amountOwed;
+  final bool settled;
+
+  const SplitEntry({required this.amountOwed, required this.settled});
+
+  Map<String, dynamic> toMap() => {
+        'amountOwed': amountOwed,
+        'settled': settled,
+      };
+
+  factory SplitEntry.fromMap(dynamic raw) {
+    // New format: { amountOwed: number, settled: bool }
+    if (raw is Map) {
+      return SplitEntry(
+        amountOwed: (raw['amountOwed'] ?? 0.0).toDouble(),
+        settled: raw['settled'] ?? false,
+      );
+    }
+    // Backward-compat: old flat number format { uid: number }
+    return SplitEntry(
+      amountOwed: (raw ?? 0.0).toDouble(),
+      settled: false,
+    );
+  }
+}
+
+// ── GroupExpenseItemModel ─────────────────────────────────────────────────────
+
 class GroupExpenseItemModel {
   final String name;
   final double amount;
@@ -30,6 +65,8 @@ class GroupExpenseItemModel {
   }
 }
 
+// ── GroupExpenseModel ─────────────────────────────────────────────────────────
+
 class GroupExpenseModel {
   final String expenseId;
   final String payerUid;
@@ -37,7 +74,10 @@ class GroupExpenseModel {
   final String category;
   final String description;
   final String splitType; // 'equal' | 'custom' | 'percentage' | 'itemized'
-  final Map<String, double> splits; // uid -> absolute amount owed
+
+  /// New schema: uid → SplitEntry { amountOwed, settled }
+  final Map<String, SplitEntry> splits;
+
   final DateTime createdAt;
   final bool isDeleted;
   final String? receiptUrl;
@@ -71,6 +111,13 @@ class GroupExpenseModel {
     this.items,
   });
 
+  // ── Compatibility getter for settlement_algorithm.dart ──────────────────────
+  // recomputeBalances and settleUp call this to get { uid: amountOwed } exactly
+  // as before — zero change to settlement logic, settled flag is invisible.
+  Map<String, double> get splitsAmountOwed {
+    return splits.map((uid, entry) => MapEntry(uid, entry.amountOwed));
+  }
+
   bool get isSettlement =>
       category == 'Settlement' ||
       description == 'Settlement Payment' ||
@@ -84,7 +131,8 @@ class GroupExpenseModel {
       'category': category,
       'description': description,
       'splitType': splitType,
-      'splits': splits,
+      // New format: { uid: { amountOwed, settled } }
+      'splits': splits.map((uid, entry) => MapEntry(uid, entry.toMap())),
       'createdAt': Timestamp.fromDate(createdAt),
       'isDeleted': isDeleted,
       'receiptUrl': receiptUrl,
@@ -106,10 +154,11 @@ class GroupExpenseModel {
       parsedDate = DateTime.tryParse(rawDate) ?? DateTime.now();
     }
 
+    // Parse splits — supports both old { uid: number } and new { uid: { amountOwed, settled } }
     final rawSplits = map['splits'] ?? {};
-    final Map<String, double> parsedSplits = {};
-    rawSplits.forEach((key, val) {
-      parsedSplits[key.toString()] = (val ?? 0.0).toDouble();
+    final Map<String, SplitEntry> parsedSplits = {};
+    (rawSplits as Map).forEach((key, val) {
+      parsedSplits[key.toString()] = SplitEntry.fromMap(val);
     });
 
     final rawLastGen = map['lastGeneratedDate'];

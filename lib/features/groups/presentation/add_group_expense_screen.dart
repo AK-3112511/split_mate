@@ -13,8 +13,11 @@ import '../data/group_expenses_repository.dart';
 import '../data/groups_repository.dart';
 import '../domain/group_expense_model.dart';
 import '../domain/group_model.dart';
+import '../../../core/utils/category_helper.dart';
 import '../../../core/utils/recurring_engine.dart';
 import '../../notifications/data/notifications_repository.dart';
+import '../../personal_expenses/data/expense_repository.dart';
+import '../../personal_expenses/domain/expense_model.dart';
 
 class AddGroupExpenseScreen extends ConsumerStatefulWidget {
   final String groupId;
@@ -244,14 +247,15 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
     } else if (expense.splitType == 'itemized') {
       _itemizedItems = List<GroupExpenseItemModel>.from(expense.items ?? []);
     } else if (expense.splitType == 'custom') {
-      expense.splits.forEach((uid, val) {
+      // Use splitsAmountOwed to get the flat { uid: amountOwed } map
+      expense.splitsAmountOwed.forEach((uid, val) {
         _customAmounts[uid] = val;
         if (_splitControllers.containsKey(uid)) {
           _splitControllers[uid]!.text = val.toStringAsFixed(2);
         }
       });
     } else if (expense.splitType == 'percentage') {
-      expense.splits.forEach((uid, val) {
+      expense.splitsAmountOwed.forEach((uid, val) {
         final double pct = expense.amount > 0 ? (val / expense.amount) * 100 : 0.0;
         final roundedPct = double.parse(pct.toStringAsFixed(1));
         _percentages[uid] = roundedPct;
@@ -264,7 +268,13 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
     _initialized = true;
   }
 
-  Map<String, double> _calculateFinalSplits(double totalAmount, String payerUid) {
+  /// Returns a Map<String, SplitEntry> where:
+  ///   - payerUid entry has settled: true (they already paid)
+  ///   - all other entries have settled: false (deferred until settlement)
+  Map<String, SplitEntry> _calculateFinalSplits(double totalAmount, String payerUid) {
+    // First compute raw { uid: double } amounts, then wrap in SplitEntry
+    Map<String, double> rawSplits;
+
     if (_selectedSplitType == 'equal') {
       if (_selectedMemberUids.isEmpty) return {};
       int totalCents = (totalAmount * 100).round();
@@ -276,61 +286,47 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
       for (final uid in _selectedMemberUids) {
         splitsCents[uid] = baseCents;
       }
-      
       if (_selectedMemberUids.contains(payerUid)) {
         splitsCents[payerUid] = splitsCents[payerUid]! + remainderCents;
       } else {
         splitsCents[payerUid] = (splitsCents[payerUid] ?? 0) + remainderCents;
       }
-      
-      Map<String, double> splits = {};
+      rawSplits = {};
       splitsCents.forEach((uid, cents) {
-        if (cents > 0) {
-          splits[uid] = cents / 100.0;
-        }
+        if (cents > 0) rawSplits[uid] = cents / 100.0;
       });
-      return splits;
     } else if (_selectedSplitType == 'itemized') {
       final Map<String, double> splits = {
         for (var uid in _splitControllers.keys) uid: 0.0,
       };
-
       for (final item in _itemizedItems) {
         if (item.memberUids.isEmpty) continue;
         int itemCents = (item.amount * 100).round();
         int count = item.memberUids.length;
         int baseCents = itemCents ~/ count;
         int remainderCents = itemCents % count;
-
         for (final uid in item.memberUids) {
           splits[uid] = (splits[uid] ?? 0.0) + (baseCents / 100.0);
         }
-
         if (remainderCents > 0) {
           final String targetUid = item.memberUids.contains(payerUid) ? payerUid : item.memberUids.first;
           splits[targetUid] = (splits[targetUid] ?? 0.0) + (remainderCents / 100.0);
         }
       }
-
+      rawSplits = {};
       splits.forEach((uid, val) {
-        splits[uid] = double.parse(val.toStringAsFixed(2));
+        rawSplits[uid] = double.parse(val.toStringAsFixed(2));
       });
-
-      return splits;
     } else if (_selectedSplitType == 'custom') {
-      Map<String, double> splits = {};
+      rawSplits = {};
       _customAmounts.forEach((uid, amt) {
-        if (amt > 0) {
-          splits[uid] = amt;
-        }
+        if (amt > 0) rawSplits[uid] = amt;
       });
-      return splits;
     } else {
       // Percentage
       int totalCents = (totalAmount * 100).round();
       Map<String, int> splitsCents = {};
       int runningSum = 0;
-      
       _percentages.forEach((uid, pct) {
         if (pct > 0) {
           int cents = ((pct / 100.0) * totalCents).round();
@@ -338,20 +334,21 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
           runningSum += cents;
         }
       });
-      
       int remainderCents = totalCents - runningSum;
       if (remainderCents != 0) {
         splitsCents[payerUid] = (splitsCents[payerUid] ?? 0) + remainderCents;
       }
-      
-      Map<String, double> splits = {};
+      rawSplits = {};
       splitsCents.forEach((uid, cents) {
-        if (cents > 0) {
-          splits[uid] = cents / 100.0;
-        }
+        if (cents > 0) rawSplits[uid] = cents / 100.0;
       });
-      return splits;
     }
+
+    // Wrap raw amounts in SplitEntry: payer is immediately settled, others deferred.
+    return rawSplits.map((uid, amount) => MapEntry(
+      uid,
+      SplitEntry(amountOwed: amount, settled: uid == payerUid),
+    ));
   }
 
   bool _validateSplits(double totalAmount, String? payerUid) {
@@ -426,11 +423,15 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
     try {
       final splitsMap = _calculateFinalSplits(totalAmount, _selectedPayerUid!);
       
+      final categories = ref.read(userCategoriesProvider).value ?? [];
+      final resolvedCat = CategoryHelper.resolveCategory(_selectedCategoryId!, categories);
+      final categoryValue = resolvedCat.name.isNotEmpty ? resolvedCat.name : _selectedCategoryId!;
+
       final expense = GroupExpenseModel(
         expenseId: widget.editExpenseId ?? const Uuid().v4(),
         payerUid: _selectedPayerUid!,
         amount: totalAmount,
-        category: _selectedCategoryId!,
+        category: categoryValue,
         description: _descriptionController.text.trim(),
         splitType: _selectedSplitType,
         splits: splitsMap,
@@ -446,8 +447,64 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
 
       if (widget.editExpenseId != null) {
         await ref.read(groupExpensesRepositoryProvider).updateGroupExpense(widget.groupId, expense);
+
+        // ── Section 12: Update Personal Mirror on Edit ───────────────────────
+        // If the current user is the payer, their mirror was written at creation
+        // time (mirror_{expenseId}). Reflect the edited amount/description/category.
+        // If the current user is a debtor whose mirror already exists (written
+        // at settlement time), update that too.
+        final currentUid = ref.read(firebaseAuthProvider).currentUser?.uid;
+        if (currentUid != null && !expense.isSettlement && !expense.isRecurringTemplate) {
+          final group = ref.read(groupDetailsStreamProvider(widget.groupId)).value;
+          final groupName = group?.name ?? 'Group';
+          final baseDesc = expense.description.isNotEmpty ? expense.description : 'Group Expense';
+          final mirrorDesc = baseDesc.contains('($groupName)') ? baseDesc : '$baseDesc ($groupName)';
+
+          // Determine this user's share from the updated splits
+          final userSplitEntry = splitsMap[currentUid];
+          final mirrorAmount = userSplitEntry?.amountOwed ?? 0.0;
+
+          if (mirrorAmount > 0) {
+            final mirrorExpense = ExpenseModel(
+              id: 'mirror_${expense.expenseId}',
+              amount: mirrorAmount,
+              category: expense.category,
+              description: mirrorDesc,
+              createdAt: DateTime.now(),
+              isFromGroup: true,
+              sourceGroupId: widget.groupId,
+              sourceExpenseId: expense.expenseId,
+            );
+            // updateGroupMirrorExpense uses merge:true — only updates if doc exists
+            // for debtors; always updates for the payer since theirs was written at creation.
+            await ref.read(expenseRepositoryProvider).updateGroupMirrorExpense(mirrorExpense);
+          }
+        }
       } else {
         await ref.read(groupExpensesRepositoryProvider).addGroupExpense(widget.groupId, expense);
+
+        // ── Section 12: Payer-Side Immediate Mirror ───────────────────────────
+        // Write the payer's personal expense immediately after group expense creation.
+        // amount = payer's own amountOwed share, same category, tagged isFromGroup.
+        final payerSplitEntry = splitsMap[_selectedPayerUid!];
+        if (payerSplitEntry != null && payerSplitEntry.amountOwed > 0 && !expense.isSettlement) {
+          final group = ref.read(groupDetailsStreamProvider(widget.groupId)).value;
+          final groupName = group?.name ?? 'Group';
+          final baseDesc = expense.description.isNotEmpty ? expense.description : 'Group Expense';
+          final mirrorDesc = baseDesc.contains('($groupName)') ? baseDesc : '$baseDesc ($groupName)';
+
+          final mirrorExpense = ExpenseModel(
+            id: 'mirror_${expense.expenseId}',
+            amount: payerSplitEntry.amountOwed,
+            category: expense.category,
+            description: mirrorDesc,
+            createdAt: DateTime.now(),
+            isFromGroup: true,
+            sourceGroupId: widget.groupId,
+            sourceExpenseId: expense.expenseId,
+          );
+          await ref.read(expenseRepositoryProvider).addGroupMirrorExpense(mirrorExpense);
+        }
 
         final group = ref.read(groupDetailsStreamProvider(widget.groupId)).value;
         if (group != null) {
@@ -1077,8 +1134,8 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
       // Calculate share
       double share = 0.0;
       if (isSelected && totalAmount > 0) {
-        final Map<String, double> tempSplits = _calculateFinalSplits(totalAmount, _selectedPayerUid ?? currentUid);
-        share = tempSplits[uid] ?? 0.0;
+        final tempSplits = _calculateFinalSplits(totalAmount, _selectedPayerUid ?? currentUid);
+        share = tempSplits[uid]?.amountOwed ?? 0.0;
       }
 
       return CheckboxListTile(
@@ -1282,7 +1339,8 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
 
                                 return detailsAsync.when(
                                   data: (details) {
-                                    final name = details?['displayName'] ?? 'User';
+                                    final originalName = details?['displayName'] ?? 'User';
+                                    final name = (friend.nickname != null && friend.nickname!.isNotEmpty) ? friend.nickname! : originalName;
                                     return ListTile(
                                       contentPadding: EdgeInsets.zero,
                                       title: Text(
@@ -1785,7 +1843,7 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
               const SizedBox(height: 16),
               // Members calculated list
               ...members.map((uid) {
-                final double share = calculatedSplits[uid] ?? 0.0;
+                final double share = (calculatedSplits[uid]?.amountOwed) ?? 0.0;
                 return Padding(
                   padding: const EdgeInsets.only(bottom: 8.0),
                   child: Row(
@@ -1872,8 +1930,7 @@ class MemberInitialAvatar extends ConsumerWidget {
     if (currentUser != null && currentUser.uid == uid) {
       name = currentUser.displayName ?? 'You';
     } else {
-      final details = ref.watch(friendDetailsProvider(uid)).value;
-      name = details?['displayName'] ?? 'User';
+      name = ref.watch(resolvedMemberNameProvider(uid));
     }
 
     final initials = name.isNotEmpty
@@ -1924,11 +1981,7 @@ class MemberNameText extends ConsumerWidget {
     if (uid == currentUid) {
       return Text('You', style: style, maxLines: 1, overflow: TextOverflow.ellipsis);
     }
-    final detailsAsync = ref.watch(friendDetailsProvider(uid));
-    return detailsAsync.when(
-      data: (details) => Text(details?['displayName'] ?? 'User', style: style, maxLines: 1, overflow: TextOverflow.ellipsis),
-      loading: () => Text('Loading...', style: style, maxLines: 1, overflow: TextOverflow.ellipsis),
-      error: (e, s) => Text('User', style: style, maxLines: 1, overflow: TextOverflow.ellipsis),
-    );
+    final name = ref.watch(resolvedMemberNameProvider(uid));
+    return Text(name, style: style, maxLines: 1, overflow: TextOverflow.ellipsis);
   }
 }

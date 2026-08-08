@@ -8,6 +8,7 @@ import 'features/auth/data/auth_repository.dart';
 import 'core/theme/app_theme.dart';
 import 'core/utils/router.dart';
 import 'core/utils/recurring_engine.dart';
+import 'features/groups/data/group_mirror_service.dart';
 
 class MyApp extends ConsumerStatefulWidget {
   const MyApp({super.key});
@@ -65,7 +66,11 @@ class _MyAppState extends ConsumerState<MyApp> {
     ref.listen<AsyncValue<User?>>(authStateProvider, (prev, next) {
       next.whenData((user) {
         if (user != null) {
+          // Run recurring expense templates on launch (existing)
           processRecurringTemplates(ref);
+          // Run Section 12 group mirror scan on launch — detects any
+          // settled splits the user hasn't yet mirrored into personal expenses.
+          runGroupMirrorScan(ref);
         }
       });
     });

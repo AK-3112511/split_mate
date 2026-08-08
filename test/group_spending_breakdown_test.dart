@@ -13,7 +13,7 @@ void main() {
           category: 'Food',
           description: 'Team Dinner',
           splitType: 'equal',
-          splits: {'user-1': 2733.34, 'user-2': 2733.33, 'user-3': 2733.33},
+          splits: {'user-1': SplitEntry(amountOwed: 2733.34, settled: true), 'user-2': SplitEntry(amountOwed: 2733.33, settled: false), 'user-3': SplitEntry(amountOwed: 2733.33, settled: false)},
           createdAt: DateTime(2026, 7, 10),
           isDeleted: false,
           isRecurringTemplate: false,
@@ -25,7 +25,7 @@ void main() {
           category: 'Travel',
           description: 'Cab fare',
           splitType: 'equal',
-          splits: {'user-1': 1700.0, 'user-2': 1700.0, 'user-3': 1700.0},
+          splits: {'user-1': SplitEntry(amountOwed: 1700.0, settled: false), 'user-2': SplitEntry(amountOwed: 1700.0, settled: true), 'user-3': SplitEntry(amountOwed: 1700.0, settled: false)},
           createdAt: DateTime(2026, 7, 12),
           isDeleted: false,
           isRecurringTemplate: false,
@@ -38,7 +38,7 @@ void main() {
           category: 'Food',
           description: 'Cancelled Meal',
           splitType: 'equal',
-          splits: {'user-1': 1000.0, 'user-2': 1000.0, 'user-3': 1000.0},
+          splits: {'user-1': SplitEntry(amountOwed: 1000.0, settled: false), 'user-2': SplitEntry(amountOwed: 1000.0, settled: false), 'user-3': SplitEntry(amountOwed: 1000.0, settled: true)},
           createdAt: DateTime(2026, 7, 15),
           isDeleted: true,
           isRecurringTemplate: false,
@@ -51,7 +51,7 @@ void main() {
           category: 'Rent',
           description: 'Template Rent',
           splitType: 'equal',
-          splits: {'user-1': 500.0, 'user-2': 500.0},
+          splits: {'user-1': SplitEntry(amountOwed: 500.0, settled: true), 'user-2': SplitEntry(amountOwed: 500.0, settled: false)},
           createdAt: DateTime(2026, 7, 1),
           isDeleted: false,
           isRecurringTemplate: true,
@@ -98,6 +98,29 @@ void main() {
 
       expect(sortedPayerUids[2], 'user-3'); // user-3 paid 0.0 (Rank #3)
       expect(payerSums['user-3'], 0.0);
+
+      // 5. Member Individual Spend Math ("How Much Everyone Spent")
+      final Map<String, double> memberIndividualSpend = {
+        for (var uid in members) uid: 0.0,
+      };
+      for (final e in activeExpenses) {
+        e.splitsAmountOwed.forEach((uid, amountOwed) {
+          if (memberIndividualSpend.containsKey(uid)) {
+            memberIndividualSpend[uid] = (memberIndividualSpend[uid] ?? 0.0) + amountOwed;
+          }
+        });
+      }
+
+      // user-1 share: 2733.34 + 1700.0 = 4433.34
+      expect(memberIndividualSpend['user-1'], 4433.34);
+      // user-2 share: 2733.33 + 1700.0 = 4433.33
+      expect(memberIndividualSpend['user-2'], 4433.33);
+      // user-3 share: 2733.33 + 1700.0 = 4433.33
+      expect(memberIndividualSpend['user-3'], 4433.33);
+
+      // CROSS-CHECK: Sum of individual member shares equals total group spend
+      final double totalIndividualSharesSum = memberIndividualSpend.values.fold(0.0, (a, b) => a + b);
+      expect(totalIndividualSharesSum, equals(totalGroupSpend));
     });
   });
 }

@@ -33,6 +33,25 @@ final friendDetailsProvider = StreamProvider.family<Map<String, dynamic>?, Strin
       .map((snap) => snap.data()));
 });
 
+final resolvedMemberNameProvider = Provider.family<String, String>((ref, uid) {
+  final currentUid = ref.watch(firebaseAuthProvider).currentUser?.uid;
+
+  // 1. Check custom nickname from friends stream
+  final friendsList = ref.watch(friendsStreamProvider).valueOrNull ?? [];
+  for (final f in friendsList) {
+    if (f.uid == uid && f.nickname != null && f.nickname!.isNotEmpty) {
+      return f.nickname!;
+    }
+  }
+
+  // 2. If current logged-in user and no nickname override exists
+  if (uid == currentUid) return 'You';
+
+  // 3. Fall back to user's registered displayName
+  final details = ref.watch(friendDetailsProvider(uid)).valueOrNull;
+  return details?['displayName'] ?? 'Member';
+});
+
 class FriendsRepository {
   final FirebaseFirestore _firestore;
   final FirebaseAuth _auth;
@@ -181,5 +200,21 @@ class FriendsRepository {
     batch.delete(friendFriendDocRef);
 
     await batch.commit();
+  }
+
+  Future<void> updateFriendNickname(String friendUid, String nickname) async {
+    final myUid = _currentUid;
+    if (myUid == null) throw Exception('User not authenticated');
+
+    final cleanNickname = nickname.trim();
+    final docRef = _firestore
+        .collection('friends')
+        .doc(myUid)
+        .collection('friendList')
+        .doc(friendUid);
+
+    await docRef.update({
+      'nickname': cleanNickname.isEmpty ? FieldValue.delete() : cleanNickname,
+    });
   }
 }

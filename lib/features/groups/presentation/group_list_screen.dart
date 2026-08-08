@@ -37,14 +37,11 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
     super.dispose();
   }
 
-  void _showCreateGroupForm(List<FriendModel> friends) {
+  void _showCreateGroupForm() {
     _groupNameController.clear();
     _selectedFriendUids.clear();
     _modalError = null;
     _isCreating = false;
-
-    // Filter accepted friends only
-    final acceptedFriends = friends.where((f) => f.status == 'accepted').toList();
 
     showModalBottomSheet(
       context: context,
@@ -131,75 +128,96 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
                     ),
                     const SizedBox(height: 12),
 
-                    if (acceptedFriends.isEmpty)
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(20),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: AppTheme.textSecondary.withValues(alpha: 0.15)),
-                        ),
-                        child: Center(
-                          child: Text(
-                            'Connect with friends first to add them.',
-                            style: AppTheme.monoSecondary.copyWith(fontSize: 11),
-                          ),
-                        ),
-                      )
-                    else
-                      Container(
-                        constraints: const BoxConstraints(maxHeight: 180),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: AppTheme.textSecondary.withValues(alpha: 0.15)),
-                        ),
-                        child: ListView.separated(
-                          shrinkWrap: true,
-                          itemCount: acceptedFriends.length,
-                          separatorBuilder: (context, index) => Divider(
-                            color: AppTheme.textSecondary.withValues(alpha: 0.15),
-                            height: 1,
-                          ),
-                          itemBuilder: (context, index) {
-                            final friend = acceptedFriends[index];
-                            final isSelected = _selectedFriendUids.contains(friend.uid);
-
-                            // Load friend details
-                            final detailsAsync = ref.watch(friendDetailsProvider(friend.uid));
-
-                            return detailsAsync.when(
-                              data: (details) {
-                                final name = details?['displayName'] ?? 'User';
-                                final email = details?['email'] ?? 'Active...';
-                                
-                                return CheckboxListTile(
-                                  value: isSelected,
-                                  title: Text(
-                                    name,
-                                    style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14, fontWeight: FontWeight.bold),
+                    Consumer(
+                      builder: (context, ref, child) {
+                        final friendsAsync = ref.watch(friendsStreamProvider);
+                        return friendsAsync.when(
+                          data: (friends) {
+                            final acceptedFriends = friends.where((f) => f.status == 'accepted').toList();
+                            if (acceptedFriends.isEmpty) {
+                              return Container(
+                                width: double.infinity,
+                                padding: const EdgeInsets.all(20),
+                                decoration: BoxDecoration(
+                                  border: Border.all(color: AppTheme.textSecondary.withValues(alpha: 0.15)),
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    'Connect with friends first to add them.',
+                                    style: AppTheme.monoSecondary.copyWith(fontSize: 11),
                                   ),
-                                  subtitle: Text(
-                                    email,
-                                    style: AppTheme.monoSecondary.copyWith(fontSize: 9),
-                                  ),
-                                  activeColor: AppTheme.accent,
-                                  checkColor: Colors.black,
-                                  checkboxShape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-                                  onChanged: (val) {
-                                    setModalState(() {
-                                      if (val == true) {
-                                        _selectedFriendUids.add(friend.uid);
-                                      } else {
-                                        _selectedFriendUids.remove(friend.uid);
-                                      }
-                                    });
-                                  },
-                                );
-                              },
-                              loading: () => const ListTile(title: Text('Loading friend...')),
-                              error: (e, s) => ListTile(title: Text('Error: $e')),
+                                ),
+                              );
+                            }
+                            return Container(
+                              constraints: const BoxConstraints(maxHeight: 180),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: AppTheme.textSecondary.withValues(alpha: 0.15)),
+                              ),
+                              child: ListView.separated(
+                                shrinkWrap: true,
+                                itemCount: acceptedFriends.length,
+                                separatorBuilder: (context, index) => Divider(
+                                  color: AppTheme.textSecondary.withValues(alpha: 0.15),
+                                  height: 1,
+                                ),
+                                itemBuilder: (context, index) {
+                                  final friend = acceptedFriends[index];
+                                  final isSelected = _selectedFriendUids.contains(friend.uid);
+
+                                  // Load friend details
+                                  final detailsAsync = ref.watch(friendDetailsProvider(friend.uid));
+
+                                  return detailsAsync.when(
+                                    data: (details) {
+                                      final originalName = details?['displayName'] ?? 'User';
+                                      final name = (friend.nickname != null && friend.nickname!.isNotEmpty) ? friend.nickname! : originalName;
+                                      final email = details?['email'] ?? 'Active...';
+                                      
+                                      return CheckboxListTile(
+                                        value: isSelected,
+                                        title: Text(
+                                          name,
+                                          style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14, fontWeight: FontWeight.bold),
+                                        ),
+                                        subtitle: Text(
+                                          email,
+                                          style: AppTheme.monoSecondary.copyWith(fontSize: 9),
+                                        ),
+                                        activeColor: AppTheme.accent,
+                                        checkColor: Colors.black,
+                                        checkboxShape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+                                        onChanged: (val) {
+                                          setModalState(() {
+                                            if (val == true) {
+                                              _selectedFriendUids.add(friend.uid);
+                                            } else {
+                                              _selectedFriendUids.remove(friend.uid);
+                                            }
+                                          });
+                                        },
+                                      );
+                                    },
+                                    loading: () => const ListTile(title: Text('Loading friend...')),
+                                    error: (e, s) => ListTile(title: Text('Error: $e')),
+                                  );
+                                },
+                              ),
                             );
                           },
-                        ),
-                      ),
+                          loading: () => const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(20.0),
+                              child: CircularProgressIndicator(color: AppTheme.accent, strokeWidth: 2),
+                            ),
+                          ),
+                          error: (e, s) => Container(
+                            padding: const EdgeInsets.all(16),
+                            child: Text('Error loading friends: $e', style: const TextStyle(color: Colors.red, fontSize: 11)),
+                          ),
+                        );
+                      },
+                    ),
                     const SizedBox(height: 32),
 
                     // Submit CTA button
@@ -548,15 +566,11 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
           error: (err, stack) => Center(child: Text('Error: $err', style: const TextStyle(color: Colors.red))),
         ),
       ),
-      floatingActionButton: friendsAsync.when(
-        data: (friends) => FloatingActionButton(
-          onPressed: () => _showCreateGroupForm(friends),
-          backgroundColor: AppTheme.accent,
-          shape: const CircleBorder(),
-          child: const Icon(Icons.add, color: Colors.black),
-        ),
-        loading: () => null,
-        error: (_, __) => null,
+      floatingActionButton: FloatingActionButton(
+        onPressed: _showCreateGroupForm,
+        backgroundColor: AppTheme.accent,
+        shape: const CircleBorder(),
+        child: const Icon(Icons.add, color: Colors.black),
       ),
     );
   }
@@ -568,77 +582,121 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // 1. Overview Header Row
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'ACTIVE SETTLEMENT',
-                      style: AppTheme.monoStyle.copyWith(
-                        color: AppTheme.accent,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.2,
+            // 1. Top Card: CREDITORS & DEBTORS Summary Card
+            Consumer(
+              builder: (context, ref, child) {
+                final overviewAsync = ref.watch(globalSettlementOverviewProvider);
+
+                return overviewAsync.when(
+                  data: (data) {
+                    final creditorCount = data['creditorGroupsCount'] as int;
+                    final debtorCount = data['debtorGroupsCount'] as int;
+                    final totalOwed = data['totalOwed'] as double;
+                    final totalOwe = data['totalOwe'] as double;
+
+                    final creditorLabel = creditorCount == 1 ? 'Group owes you' : 'Groups owe you';
+                    final debtorLabel = debtorCount == 1 ? 'Group needs' : 'Groups need';
+
+                    return Container(
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        border: Border.all(color: AppTheme.textSecondary.withValues(alpha: 0.15)),
+                        color: AppTheme.surfaceCard.withValues(alpha: 0.2),
                       ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Groups Overview',
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: -0.5,
-                          ),
-                    ),
-                  ],
-                ),
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      'TOTAL BALANCE',
-                      style: AppTheme.monoStyle.copyWith(
-                        color: AppTheme.accent,
-                        fontSize: 11,
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1.2,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Consumer(
-                      builder: (context, ref, child) {
-                        final overviewAsync = ref.watch(globalSettlementOverviewProvider);
-                        return overviewAsync.when(
-                          data: (data) {
-                            final total = data['totalBalance'] as double;
-                            final prefix = total > 0.01 ? '+' : '';
-                            final color = total > 0.01
-                                ? AppTheme.semanticPositive
-                                : total < -0.01
-                                    ? AppTheme.semanticNegative
-                                    : AppTheme.textSecondary;
-                            return Text(
-                              '$prefix₹${total.toStringAsFixed(0).replaceFirst('-', '')}',
-                              style: AppTheme.monoStyle.copyWith(
-                                color: color,
-                                fontSize: 18,
-                                fontWeight: FontWeight.bold,
+                      child: Row(
+                        children: [
+                          // Left Column: Creditors
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'CREDITORS',
+                                    style: AppTheme.monoSecondary.copyWith(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppTheme.accent,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    '$creditorCount $creditorLabel',
+                                    style: const TextStyle(
+                                      color: AppTheme.textPrimary,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '+₹${totalOwed.toStringAsFixed(2)}',
+                                    style: AppTheme.monoStyle.copyWith(
+                                      color: AppTheme.semanticPositive,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
                               ),
-                            );
-                          },
-                          loading: () => const Text('...', style: TextStyle(color: AppTheme.textSecondary)),
-                          error: (_, __) => const Text('Error', style: TextStyle(color: Colors.red)),
-                        );
-                      },
-                    ),
-                  ],
-                ),
-              ],
+                            ),
+                          ),
+                          // Middle Vertical Divider Line
+                          Container(
+                            height: 60,
+                            width: 1,
+                            color: AppTheme.textSecondary.withValues(alpha: 0.15),
+                          ),
+                          // Right Column: Debtors
+                          Expanded(
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 16.0),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'DEBTORS',
+                                    style: AppTheme.monoSecondary.copyWith(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                      color: AppTheme.accent,
+                                      letterSpacing: 0.5,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 6),
+                                  Text(
+                                    '$debtorCount $debtorLabel',
+                                    style: const TextStyle(
+                                      color: AppTheme.textPrimary,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    '-₹${totalOwe.toStringAsFixed(2)}',
+                                    style: AppTheme.monoStyle.copyWith(
+                                      color: AppTheme.semanticNegative,
+                                      fontSize: 14,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  },
+                  loading: () => const SizedBox.shrink(),
+                  error: (_, __) => const SizedBox.shrink(),
+                );
+              },
             ),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
 
             // Join Group with Code Quick Action Row
             Row(
@@ -902,121 +960,7 @@ class _GroupListScreenState extends ConsumerState<GroupListScreen> {
                   );
                 },
               ),
-            const SizedBox(height: 32),
 
-            // 3. Bottom Overview Summary Card
-            Consumer(
-              builder: (context, ref, child) {
-                final overviewAsync = ref.watch(globalSettlementOverviewProvider);
-
-                return overviewAsync.when(
-                  data: (data) {
-                    final creditorCount = data['creditorGroupsCount'] as int;
-                    final debtorCount = data['debtorGroupsCount'] as int;
-                    final totalOwed = data['totalOwed'] as double;
-                    final totalOwe = data['totalOwe'] as double;
-
-                    final creditorLabel = creditorCount == 1 ? 'Group owes you' : 'Groups owe you';
-                    final debtorLabel = debtorCount == 1 ? 'Group needs' : 'Groups need';
-
-                    return Container(
-                      width: double.infinity,
-                      decoration: BoxDecoration(
-                        border: Border.all(color: AppTheme.textSecondary.withValues(alpha: 0.15)),
-                      ),
-                      child: Row(
-                        children: [
-                          // Left Column: Creditors
-                          Expanded(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 20.0),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'CREDITORS',
-                                    style: AppTheme.monoSecondary.copyWith(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                      color: AppTheme.accent,
-                                      letterSpacing: 0.5,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    '$creditorCount $creditorLabel',
-                                    style: const TextStyle(
-                                      color: AppTheme.textPrimary,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    'a total of ₹${totalOwed.toStringAsFixed(0)}',
-                                    style: AppTheme.monoStyle.copyWith(
-                                      color: AppTheme.semanticPositive,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                          // Vertical dividing line
-                          Container(
-                            width: 1.0,
-                            height: 80,
-                            color: AppTheme.textSecondary.withValues(alpha: 0.15),
-                          ),
-                          // Right Column: Debts
-                          Expanded(
-                            child: Padding(
-                              padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 20.0),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'DEBTS',
-                                    style: AppTheme.monoSecondary.copyWith(
-                                      fontSize: 10,
-                                      fontWeight: FontWeight.bold,
-                                      color: AppTheme.accent,
-                                      letterSpacing: 0.5,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    '$debtorCount $debtorLabel',
-                                    style: const TextStyle(
-                                      color: AppTheme.textPrimary,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    '₹${totalOwe.toStringAsFixed(0)} settled',
-                                    style: AppTheme.monoStyle.copyWith(
-                                      color: AppTheme.semanticNegative,
-                                      fontSize: 13,
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    );
-                  },
-                  loading: () => const SizedBox(),
-                  error: (_, __) => const SizedBox(),
-                );
-              },
-            ),
           ],
         ),
       ),

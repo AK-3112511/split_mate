@@ -105,7 +105,7 @@ void main() {
         category: 'Rent',
         description: 'Monthly Flat Rent',
         splitType: 'equal',
-        splits: {'user-1': 2500.0, 'user-2': 2500.0},
+        splits: {'user-1': SplitEntry(amountOwed: 2500.0, settled: true), 'user-2': SplitEntry(amountOwed: 2500.0, settled: false)},
         createdAt: DateTime.now().subtract(const Duration(days: 40)),
         isRecurringTemplate: true,
         recurrenceInterval: 'monthly',
@@ -171,7 +171,7 @@ void main() {
       expect(instance.isCancelled, isFalse);
       expect(instance.generatedFromTemplateId, 'template-1');
       expect(instance.amount, 5000.0);
-      expect(instance.splits['user-1'], 2500.0);
+      expect(instance.splits['user-1']?.amountOwed, 2500.0);
 
       // Confirm (3): simulate launch-time query filter - cancelled templates (isCancelled: true)
       // will be filtered out by where('isCancelled', isEqualTo: false) in processRecurringTemplates

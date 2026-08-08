@@ -310,6 +310,32 @@ class GroupsRepository {
     });
   }
 
+  Future<void> leaveGroup(String groupId) async {
+    final myUid = _currentUid;
+    if (myUid == null) throw Exception('User not authenticated');
+
+    final groupDoc = _firestore.collection('groups').doc(groupId);
+    await _firestore.runTransaction((transaction) async {
+      final snap = await transaction.get(groupDoc);
+      if (!snap.exists) throw Exception('Group not found');
+      final data = snap.data() as Map<String, dynamic>?;
+
+      final members = List<String>.from(data?['members'] ?? []);
+      final admins = List<String>.from(data?['admins'] ?? []);
+
+      members.remove(myUid);
+      admins.remove(myUid);
+
+      final isDeleted = members.isEmpty;
+
+      transaction.update(groupDoc, {
+        'members': members,
+        'admins': admins,
+        if (isDeleted) 'isDeleted': true,
+      });
+    });
+  }
+
   Future<void> makeMemberAdmin(String groupId, String memberUid) async {
     final myUid = _currentUid;
     if (myUid == null) throw Exception('User not authenticated');

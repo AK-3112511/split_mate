@@ -6,6 +6,7 @@ class FriendModel {
   final double balance; // positive: they owe you, negative: you owe them
   final DateTime addedAt;
   final String sentBy; // Who initiated the request
+  final String? nickname;
 
   FriendModel({
     required this.uid,
@@ -13,6 +14,7 @@ class FriendModel {
     required this.balance,
     required this.addedAt,
     required this.sentBy,
+    this.nickname,
   });
 
   Map<String, dynamic> toMap() {
@@ -22,6 +24,7 @@ class FriendModel {
       'balance': balance,
       'addedAt': Timestamp.fromDate(addedAt),
       'sentBy': sentBy,
+      if (nickname != null) 'nickname': nickname,
     };
   }
 
@@ -40,6 +43,7 @@ class FriendModel {
       balance: (map['balance'] ?? 0.0).toDouble(),
       addedAt: parsedDate,
       sentBy: map['sentBy'] ?? '',
+      nickname: map['nickname'] as String?,
     );
   }
 }

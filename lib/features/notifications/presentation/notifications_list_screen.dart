@@ -181,7 +181,13 @@ class NotificationsListScreen extends ConsumerWidget {
               child: Icon(
                 notification.type == 'payment_request'
                     ? Icons.payments_outlined
-                    : Icons.notifications_active_outlined,
+                    : notification.type == 'member_left' || notification.type == 'member_removed'
+                        ? Icons.person_remove_outlined
+                        : notification.type == 'group_edited'
+                            ? Icons.edit_note_outlined
+                            : notification.type == 'group_deleted'
+                                ? Icons.delete_forever_outlined
+                                : Icons.notifications_active_outlined,
                 color: notification.isRead ? AppTheme.textSecondary : AppTheme.accent,
                 size: 20,
               ),

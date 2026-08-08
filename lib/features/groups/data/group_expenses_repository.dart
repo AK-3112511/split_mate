@@ -203,8 +203,56 @@ class GroupExpensesRepository {
     if (uid == null) throw Exception('User not authenticated');
 
     final actorName = await _getActorName(uid);
+
+    // Read old expense to build a rich diff message
+    String diffMessage;
+    try {
+      final oldDoc = await _firestore
+          .collection('groups')
+          .doc(groupId)
+          .collection('expenses')
+          .doc(expense.expenseId)
+          .get();
+      final oldData = oldDoc.data();
+      if (oldData != null) {
+        final oldExpense = GroupExpenseModel.fromMap(oldData, expense.expenseId);
+        final List<String> changes = [];
+
+        // Amount changed?
+        final oldAmt = oldExpense.amount;
+        final newAmt = expense.amount;
+        if ((oldAmt * 100).round() != (newAmt * 100).round()) {
+          changes.add('amount ₹${oldAmt.toStringAsFixed(2)} → ₹${newAmt.toStringAsFixed(2)}');
+        }
+
+        // Description changed?
+        final oldDesc = oldExpense.description.trim();
+        final newDesc = expense.description.trim();
+        if (oldDesc != newDesc && newDesc.isNotEmpty) {
+          changes.add('renamed "$oldDesc" → "$newDesc"');
+        }
+
+        // Category changed?
+        final oldCat = oldExpense.category.trim();
+        final newCat = expense.category.trim();
+        if (oldCat.toLowerCase() != newCat.toLowerCase() && newCat.isNotEmpty) {
+          changes.add('category "$oldCat" → "$newCat"');
+        }
+
+        if (changes.isNotEmpty) {
+          diffMessage = '$actorName updated "${expense.description}": ${changes.join(', ')}';
+        } else {
+          diffMessage = '$actorName updated "${expense.description}"';
+        }
+      } else {
+        diffMessage = '$actorName updated "${expense.description}"';
+      }
+    } catch (_) {
+      diffMessage = '$actorName updated "${expense.description}"';
+    }
+
     final batch = _firestore.batch();
-    
+
     final expenseDoc = _firestore
         .collection('groups')
         .doc(groupId)
@@ -222,7 +270,7 @@ class GroupExpensesRepository {
         'type': 'expense_edited',
         'actorUid': uid,
         'expenseId': expense.expenseId,
-        'message': '$actorName edited "${expense.description}"',
+        'message': diffMessage,
         'createdAt': FieldValue.serverTimestamp(),
       });
     }
@@ -315,6 +363,7 @@ class GroupExpensesRepository {
     if (uid == null) throw Exception('User not authenticated');
 
     final expenseId = const Uuid().v4();
+    // Settlement payment: both entries settled:true — this is a resolution, not a new debt.
     final expense = GroupExpenseModel(
       expenseId: expenseId,
       payerUid: fromUid,
@@ -323,7 +372,8 @@ class GroupExpensesRepository {
       description: 'Settlement Payment',
       splitType: 'custom',
       splits: {
-        toUid: amount,
+        fromUid: SplitEntry(amountOwed: 0.0, settled: true),
+        toUid: SplitEntry(amountOwed: amount, settled: true),
       },
       createdAt: DateTime.now(),
     );
@@ -354,5 +404,67 @@ class GroupExpensesRepository {
     });
 
     await batch.commit();
+  }
+
+  /// Marks all unsettled pairwise split entries between [payerUid] and [debtorUid]
+  /// as settled:true in a single batch write.
+  ///
+  /// This covers:
+  ///   - Entries where debtorUid owes payerUid (debtor's split entry in payerUid's expenses)
+  ///   - Entries where payerUid owes debtorUid (reverse: A owes B something from B's expense)
+  ///
+  /// Called immediately after a pairwise settlement is confirmed by Record Payment.
+  Future<void> markSplitsSettled(String groupId, String payerUid, String debtorUid) async {
+    // Fetch all non-deleted, non-template expenses in this group
+    final snapshot = await _firestore
+        .collection('groups')
+        .doc(groupId)
+        .collection('expenses')
+        .where('isDeleted', isEqualTo: false)
+        .get();
+
+    final batch = _firestore.batch();
+    bool hasPendingWrites = false;
+
+    for (final doc in snapshot.docs) {
+      final data = doc.data();
+      // Skip settlement records and templates
+      if (data['isRecurringTemplate'] == true) continue;
+      final cat = (data['category'] ?? '').toString().toLowerCase();
+      if (cat == 'settlement') continue;
+
+      final rawSplits = data['splits'] as Map<String, dynamic>? ?? {};
+      final Map<String, dynamic> updatedSplits = Map.from(rawSplits);
+      bool changed = false;
+
+      // Case 1: debtorUid has an unsettled entry in this expense (they owe payerUid)
+      if (updatedSplits.containsKey(debtorUid)) {
+        final entry = SplitEntry.fromMap(updatedSplits[debtorUid]);
+        if (!entry.settled && entry.amountOwed > 0) {
+          updatedSplits[debtorUid] = {'amountOwed': entry.amountOwed, 'settled': true};
+          changed = true;
+        }
+      }
+
+      // Case 2: payerUid has an unsettled entry in an expense paid by debtorUid
+      // (reverse direction: payerUid owes debtorUid)
+      final expPayer = (data['payerUid'] ?? '').toString();
+      if (expPayer == debtorUid && updatedSplits.containsKey(payerUid)) {
+        final entry = SplitEntry.fromMap(updatedSplits[payerUid]);
+        if (!entry.settled && entry.amountOwed > 0) {
+          updatedSplits[payerUid] = {'amountOwed': entry.amountOwed, 'settled': true};
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        batch.update(doc.reference, {'splits': updatedSplits});
+        hasPendingWrites = true;
+      }
+    }
+
+    if (hasPendingWrites) {
+      await batch.commit();
+    }
   }
 }

@@ -27,9 +27,9 @@ void main() {
           description: 'Dinner',
           splitType: 'equal',
           splits: {
-            memberA: 100.0,
-            memberB: 100.0,
-            memberC: 100.0,
+            memberA: SplitEntry(amountOwed: 100.0, settled: true),
+            memberB: SplitEntry(amountOwed: 100.0, settled: false),
+            memberC: SplitEntry(amountOwed: 100.0, settled: false),
           },
           createdAt: DateTime.now(),
         );
@@ -54,9 +54,9 @@ void main() {
           description: 'Taxi',
           splitType: 'equal',
           splits: {
-            memberA: 33.34,
-            memberB: 33.33,
-            memberC: 33.33,
+            memberA: SplitEntry(amountOwed: 33.34, settled: true),
+            memberB: SplitEntry(amountOwed: 33.33, settled: false),
+            memberC: SplitEntry(amountOwed: 33.33, settled: false),
           },
           createdAt: DateTime.now(),
         );
@@ -79,9 +79,9 @@ void main() {
           description: 'Grocery',
           splitType: 'equal',
           splits: {
-            memberA: 50.0,
-            memberB: 50.0,
-            memberC: 50.0,
+            memberA: SplitEntry(amountOwed: 50.0, settled: true),
+            memberB: SplitEntry(amountOwed: 50.0, settled: false),
+            memberC: SplitEntry(amountOwed: 50.0, settled: false),
           },
           createdAt: DateTime.now(),
           isDeleted: false,
@@ -95,9 +95,9 @@ void main() {
           description: 'Coke',
           splitType: 'equal',
           splits: {
-            memberA: 30.0,
-            memberB: 30.0,
-            memberC: 30.0,
+            memberA: SplitEntry(amountOwed: 30.0, settled: false),
+            memberB: SplitEntry(amountOwed: 30.0, settled: true),
+            memberC: SplitEntry(amountOwed: 30.0, settled: false),
           },
           createdAt: DateTime.now(),
           isDeleted: true,

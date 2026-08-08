@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:flutter/services.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/category_helper.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../friends/data/friends_repository.dart';
 import '../../categories/data/categories_repository.dart';
@@ -69,6 +70,8 @@ class GroupDetailScreen extends ConsumerWidget {
                     onSelected: (value) {
                       if (value == 'edit') {
                         _showEditGroupNameDialog(context, ref, group);
+                      } else if (value == 'leave') {
+                        _confirmLeaveGroup(context, ref, group);
                       } else if (value == 'delete') {
                         _confirmDeleteGroup(context, ref, group);
                       }
@@ -81,6 +84,16 @@ class GroupDetailScreen extends ConsumerWidget {
                             Icon(Icons.edit_outlined, size: 16, color: AppTheme.accent),
                             SizedBox(width: 8),
                             Text('EDIT GROUP', style: TextStyle(color: AppTheme.textPrimary, fontSize: 12, fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                      ),
+                      const PopupMenuItem(
+                        value: 'leave',
+                        child: Row(
+                          children: [
+                            Icon(Icons.logout, size: 16, color: AppTheme.semanticNegative),
+                            SizedBox(width: 8),
+                            Text('LEAVE GROUP', style: TextStyle(color: AppTheme.semanticNegative, fontSize: 12, fontWeight: FontWeight.bold)),
                           ],
                         ),
                       ),
@@ -307,7 +320,7 @@ class GroupDetailScreen extends ConsumerWidget {
 
                   return detailsAsync.when(
                     data: (details) {
-                      final name = details?['displayName'] ?? 'Group Member';
+                      final name = ref.watch(resolvedMemberNameProvider(memberUid));
                       final email = details?['email'] ?? 'Active on SplitMate';
                       final avatarInitials = name.isNotEmpty
                           ? name.trim().split(' ').map((e) => e[0]).take(2).join().toUpperCase()
@@ -422,6 +435,13 @@ class GroupDetailScreen extends ConsumerWidget {
                                       }
                                     } else if (action == 'remove') {
                                       await ref.read(groupsRepositoryProvider).removeMemberFromGroup(group.groupId, memberUid);
+                                      await ref.read(notificationsRepositoryProvider).sendGroupMemberRemoved(
+                                        removedMemberUid: memberUid,
+                                        remainingRecipientUids: group.members,
+                                        groupId: group.groupId,
+                                        groupName: group.name,
+                                        removedMemberName: name,
+                                      );
                                       if (context.mounted) {
                                         ScaffoldMessenger.of(context).showSnackBar(
                                           SnackBar(content: Text('Removed $name from group'), backgroundColor: AppTheme.semanticNegative),
@@ -1251,7 +1271,13 @@ class GroupDetailScreen extends ConsumerWidget {
                             errorMessage = null;
                           });
                           try {
-                            await ref.read(groupsRepositoryProvider).updateGroupName(group.groupId, controller.text);
+                            final newName = controller.text.trim();
+                            await ref.read(groupsRepositoryProvider).updateGroupName(group.groupId, newName);
+                            await ref.read(notificationsRepositoryProvider).sendGroupEdited(
+                              recipientUids: group.members,
+                              groupId: group.groupId,
+                              groupName: newName,
+                            );
                             if (dialogContext.mounted) {
                               Navigator.pop(dialogContext);
                             }
@@ -1277,6 +1303,79 @@ class GroupDetailScreen extends ConsumerWidget {
               ],
             );
           },
+        );
+      },
+    );
+  }
+
+  void _confirmLeaveGroup(BuildContext context, WidgetRef ref, GroupModel group) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: AppTheme.surfaceBase,
+          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+          title: Text(
+            'LEAVE GROUP',
+            style: AppTheme.monoStyle.copyWith(
+              color: AppTheme.semanticNegative,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+            ),
+          ),
+          content: Text(
+            'Are you sure you want to leave "${group.name}"?',
+            style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('CANCEL', style: TextStyle(color: AppTheme.textSecondary)),
+            ),
+            OutlinedButton(
+              style: OutlinedButton.styleFrom(
+                side: const BorderSide(color: AppTheme.semanticNegative),
+                shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+              ),
+              onPressed: () async {
+                Navigator.pop(dialogContext);
+                try {
+                  final currentUid = ref.read(firebaseAuthProvider).currentUser?.uid;
+                  await ref.read(groupsRepositoryProvider).leaveGroup(group.groupId);
+
+                  final remainingMembers = group.members.where((m) => m != currentUid).toList();
+                  if (remainingMembers.isNotEmpty) {
+                    await ref.read(notificationsRepositoryProvider).sendGroupMemberLeft(
+                      recipientUids: remainingMembers,
+                      groupId: group.groupId,
+                      groupName: group.name,
+                    );
+                  }
+
+                  if (context.mounted) {
+                    context.go('/groups');
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('You left "${group.name}"'),
+                        backgroundColor: AppTheme.accent,
+                      ),
+                    );
+                  }
+                } catch (e) {
+                  if (context.mounted) {
+                    final msg = e.toString().replaceFirst('Exception: ', '');
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(msg),
+                        backgroundColor: AppTheme.semanticNegative,
+                      ),
+                    );
+                  }
+                }
+              },
+              child: Text('LEAVE', style: AppTheme.monoStyle.copyWith(color: AppTheme.semanticNegative, fontWeight: FontWeight.bold)),
+            ),
+          ],
         );
       },
     );
@@ -1314,6 +1413,11 @@ class GroupDetailScreen extends ConsumerWidget {
               onPressed: () async {
                 Navigator.pop(dialogContext);
                 try {
+                  await ref.read(notificationsRepositoryProvider).sendGroupDeleted(
+                    recipientUids: group.members,
+                    groupId: group.groupId,
+                    groupName: group.name,
+                  );
                   await ref.read(groupsRepositoryProvider).deleteGroup(group.groupId);
                   if (context.mounted) {
                     context.go('/groups');
@@ -1448,10 +1552,17 @@ class GroupDetailScreen extends ConsumerWidget {
     final Map<String, String> names = {};
     final currentUser = ref.read(firebaseAuthProvider).currentUser;
     final firestore = ref.read(firestoreProvider);
+    final friends = ref.read(friendsStreamProvider).value ?? [];
+    final nicknameMap = {
+      for (var f in friends)
+        if (f.nickname != null && f.nickname!.isNotEmpty) f.uid: f.nickname!
+    };
 
     for (final uid in uids) {
       if (currentUser != null && currentUser.uid == uid) {
-        names[uid] = currentUser.displayName ?? 'You';
+        names[uid] = 'You';
+      } else if (nicknameMap.containsKey(uid)) {
+        names[uid] = nicknameMap[uid]!;
       } else {
         try {
           final doc = await firestore.collection('users').doc(uid).get();
@@ -1544,15 +1655,16 @@ class GroupDetailScreen extends ConsumerWidget {
             // 1. Total Group Spend
             final double totalSpent = activeExpenses.fold(0.0, (sum, e) => sum + e.amount);
 
-            // 2. Category totals
-            final Map<String, double> categorySums = {};
-            for (final e in activeExpenses) {
-              categorySums[e.category] = (categorySums[e.category] ?? 0.0) + e.amount;
-            }
+            // 2. Category totals (resolved via CategoryHelper)
+            final categoryGroupMap = CategoryHelper.groupExpensesByCategory(
+              items: activeExpenses,
+              getCategoryKey: (e) => e.category,
+              getAmount: (e) => e.amount,
+              userCategories: categories,
+            );
 
-            final categoryMap = {for (var c in categories) c.id: c};
-            final sortedCategoryKeys = categorySums.keys.toList()
-              ..sort((a, b) => categorySums[b]!.compareTo(categorySums[a]!));
+            final sortedCategoryEntries = categoryGroupMap.entries.toList()
+              ..sort((a, b) => b.value.compareTo(a.value));
 
             // 3. Member payer ranking ("who paid the most")
             final Map<String, double> payerSums = {
@@ -1564,6 +1676,21 @@ class GroupDetailScreen extends ConsumerWidget {
 
             final sortedPayerUids = group.members.toList()
               ..sort((a, b) => (payerSums[b] ?? 0.0).compareTo(payerSums[a] ?? 0.0));
+
+            // 4. Member individual spend (effective share consumed by each member)
+            final Map<String, double> memberIndividualSpend = {
+              for (var uid in group.members) uid: 0.0,
+            };
+            for (final e in activeExpenses) {
+              e.splitsAmountOwed.forEach((uid, amountOwed) {
+                if (memberIndividualSpend.containsKey(uid)) {
+                  memberIndividualSpend[uid] = (memberIndividualSpend[uid] ?? 0.0) + amountOwed;
+                }
+              });
+            }
+
+            final sortedIndividualSpendUids = group.members.toList()
+              ..sort((a, b) => (memberIndividualSpend[b] ?? 0.0).compareTo(memberIndividualSpend[a] ?? 0.0));
 
             return Padding(
               padding: const EdgeInsets.all(20.0),
@@ -1610,12 +1737,12 @@ class GroupDetailScreen extends ConsumerWidget {
                   const SizedBox(height: 12),
 
                   // Categories List
-                  ...sortedCategoryKeys.map((catId) {
-                    final sum = categorySums[catId] ?? 0.0;
-                    final category = categoryMap[catId];
-                    final catName = category?.name ?? 'Others';
-                    final catColor = category?.color ?? AppTheme.textSecondary;
-                    final catIcon = category?.icon ?? Icons.help_outline;
+                  ...sortedCategoryEntries.map((entry) {
+                    final category = entry.key;
+                    final sum = entry.value;
+                    final catName = category.name;
+                    final catColor = category.color;
+                    final catIcon = category.icon;
                     final double percentage = totalSpent > 0 ? sum / totalSpent : 0.0;
 
                     return Padding(
@@ -1662,6 +1789,96 @@ class GroupDetailScreen extends ConsumerWidget {
                               value: percentage,
                               backgroundColor: AppTheme.textSecondary.withValues(alpha: 0.1),
                               valueColor: AlwaysStoppedAnimation<Color>(catColor),
+                              minHeight: 4,
+                            ),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+
+                  const SizedBox(height: 16),
+                  Divider(color: AppTheme.textSecondary.withValues(alpha: 0.15), height: 1),
+                  const SizedBox(height: 16),
+
+                  // Individual Member Spend Header
+                  Text(
+                    'INDIVIDUAL SPEND (EFFECTIVE SHARES)',
+                    style: AppTheme.monoStyle.copyWith(
+                      color: AppTheme.accent,
+                      fontSize: 11,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 1.2,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+
+                  // Individual Member Spend List
+                  ...sortedIndividualSpendUids.map((uid) {
+                    final double spend = memberIndividualSpend[uid] ?? 0.0;
+                    final double percentage = totalSpent > 0 ? spend / totalSpent : 0.0;
+
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 12.0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                            children: [
+                              Consumer(
+                                builder: (context, ref, child) {
+                                  final currentUid = ref.watch(firebaseAuthProvider).currentUser?.uid;
+                                  if (uid == currentUid) {
+                                    return const Text(
+                                      'You',
+                                      style: TextStyle(
+                                        color: AppTheme.textPrimary,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                      ),
+                                      overflow: TextOverflow.ellipsis,
+                                    );
+                                  }
+                                  final details = ref.watch(friendDetailsProvider(uid)).value;
+                                  final name = details?['displayName'] ?? 'Member';
+                                  return Text(
+                                    name,
+                                    style: const TextStyle(
+                                      color: AppTheme.textPrimary,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  );
+                                },
+                              ),
+                              Row(
+                                children: [
+                                  Text(
+                                    '₹${spend.toStringAsFixed(2)}',
+                                    style: AppTheme.monoStyle.copyWith(
+                                      color: AppTheme.textPrimary,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 12,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    '(${(percentage * 100).toStringAsFixed(1)}%)',
+                                    style: AppTheme.monoSecondary.copyWith(fontSize: 10),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 6),
+                          ClipRRect(
+                            borderRadius: BorderRadius.zero,
+                            child: LinearProgressIndicator(
+                              value: percentage,
+                              backgroundColor: AppTheme.textSecondary.withValues(alpha: 0.1),
+                              valueColor: const AlwaysStoppedAnimation<Color>(AppTheme.accent),
                               minHeight: 4,
                             ),
                           ),

@@ -3,10 +3,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/category_helper.dart';
+import '../../auth/data/auth_repository.dart';
 import '../../categories/data/categories_repository.dart';
 import '../../categories/domain/category_model.dart';
 import '../data/expense_repository.dart';
 import '../domain/expense_model.dart';
+import '../../groups/data/groups_repository.dart';
 import 'charts/bar_chart_widget.dart';
 import 'charts/pie_chart_widget.dart';
 import '../../../core/utils/settlement_algorithm.dart';
@@ -47,7 +50,7 @@ class _ExpenseListScreenState extends ConsumerState<ExpenseListScreen> {
     }
   }
 
-  List<ExpenseModel> _filterExpenses(List<ExpenseModel> expenses) {
+  List<ExpenseModel> _filterExpenses(List<ExpenseModel> expenses, List<CategoryModel> categories) {
     final now = DateTime.now();
 
     return expenses.where((expense) {
@@ -81,8 +84,12 @@ class _ExpenseListScreenState extends ConsumerState<ExpenseListScreen> {
       if (!matchesDate) return false;
 
       // 2. Category Filter
-      if (_selectedCategoryId != null && expense.category != _selectedCategoryId) {
-        return false;
+      if (_selectedCategoryId != null) {
+        final selectedCat = CategoryHelper.resolveCategory(_selectedCategoryId!, categories);
+        final expCat = CategoryHelper.resolveCategory(expense.category, categories);
+        if (selectedCat.name.toLowerCase() != expCat.name.toLowerCase() && selectedCat.id != expCat.id) {
+          return false;
+        }
       }
 
       return true;
@@ -426,7 +433,7 @@ class _ExpenseListScreenState extends ConsumerState<ExpenseListScreen> {
 
   Widget _buildBody(List<CategoryModel> categories, List<ExpenseModel> expenses) {
     final categoryMap = {for (var c in categories) c.id: c};
-    final activeFilteredExpenses = _filterExpenses(expenses);
+    final activeFilteredExpenses = _filterExpenses(expenses, categories);
 
     // Calculate total spent in the active date range / filter
     final double totalSpent = activeFilteredExpenses.fold(0.0, (sum, item) => sum + item.amount);
@@ -758,10 +765,10 @@ class _ExpenseListScreenState extends ConsumerState<ExpenseListScreen> {
                           ),
                           itemBuilder: (context, index) {
                             final expense = activeFilteredExpenses[index];
-                            final cat = categoryMap[expense.category];
-                            final catColor = cat?.color ?? AppTheme.textSecondary;
-                            final catIcon = cat?.icon ?? Icons.category;
-                            final catName = cat?.name ?? 'Others';
+                            final cat = CategoryHelper.resolveCategory(expense.category, categories);
+                            final catColor = cat.color;
+                            final catIcon = cat.icon;
+                            final catName = cat.name;
                             final formattedDate = _formatExpenseDate(expense.createdAt);
 
                             return Dismissible(
@@ -830,13 +837,26 @@ class _ExpenseListScreenState extends ConsumerState<ExpenseListScreen> {
                                   ),
                                   child: Icon(catIcon, color: catColor, size: 20),
                                 ),
-                                title: Text(
-                                  expense.description.isNotEmpty ? expense.description : catName,
-                                  style: const TextStyle(
-                                    color: AppTheme.textPrimary,
-                                    fontSize: 14,
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                                title: Consumer(
+                                  builder: (context, ref, child) {
+                                    String displayDesc = expense.description.isNotEmpty ? expense.description : catName;
+                                    if (expense.isFromGroup && !displayDesc.contains('(')) {
+                                      if (expense.sourceGroupId != null && expense.sourceGroupId!.isNotEmpty) {
+                                        final group = ref.watch(groupDetailsStreamProvider(expense.sourceGroupId!)).value;
+                                        if (group != null && group.name.isNotEmpty) {
+                                          displayDesc = '$displayDesc (${group.name})';
+                                        }
+                                      }
+                                    }
+                                    return Text(
+                                      displayDesc,
+                                      style: const TextStyle(
+                                        color: AppTheme.textPrimary,
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                    );
+                                  },
                                 ),
                                 subtitle: Padding(
                                   padding: const EdgeInsets.only(top: 4.0),

@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/category_helper.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../categories/data/categories_repository.dart';
 import '../../categories/domain/category_model.dart';
@@ -157,10 +158,14 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
     });
 
     try {
+      final categories = ref.read(userCategoriesProvider).value ?? [];
+      final resolvedCat = CategoryHelper.resolveCategory(_selectedCategoryId!, categories);
+      final categoryValue = resolvedCat.name.isNotEmpty ? resolvedCat.name : _selectedCategoryId!;
+
       final expense = ExpenseModel(
         id: widget.editExpenseId ?? const Uuid().v4(),
         amount: amount,
-        category: _selectedCategoryId!,
+        category: categoryValue,
         description: _descriptionController.text.trim(),
         createdAt: _selectedDate,
         receiptUrl: _receiptUrl,

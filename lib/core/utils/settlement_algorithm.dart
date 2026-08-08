@@ -34,9 +34,11 @@ Map<String, double> recomputeBalances(String groupId, List<GroupExpenseModel> ex
     netBalance[expense.payerUid] = (netBalance[expense.payerUid] ?? 0.0) + expense.amount;
 
     // Subtract each member's split amount
-    expense.splits.forEach((uid, owed) {
+    // NOTE: splitsAmountOwed extracts only { uid: amountOwed } — settled flag is invisible here.
+    expense.splitsAmountOwed.forEach((uid, owed) {
       netBalance[uid] = (netBalance[uid] ?? 0.0) - owed;
     });
+
   }
 
   // Clean up floating point precision issues (round to 2 decimals)

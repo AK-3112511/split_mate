@@ -5,6 +5,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import '../../features/groups/domain/group_expense_model.dart';
+import 'category_helper.dart';
 
 class ExportHelper {
   /// Format category IDs into user-friendly category names
@@ -41,9 +42,13 @@ class ExportHelper {
       return presetMap[clean.toLowerCase()]!;
     }
 
-    // Fallback if category ID is a raw UUID string
     if (RegExp(r'^[0-9a-fA-F\s\-]{20,}$').hasMatch(clean)) {
       return 'General';
+    }
+
+    final resolved = CategoryHelper.resolveCategory(rawCategory, []);
+    if (resolved.name != 'Others' && resolved.name.isNotEmpty && resolved.name != rawCategory) {
+      return resolved.name;
     }
 
     return rawCategory
@@ -108,7 +113,7 @@ class ExportHelper {
       totalPaidByMember[e.payerUid] = (totalPaidByMember[e.payerUid] ?? 0.0) + e.amount;
       netBalances[e.payerUid] = (netBalances[e.payerUid] ?? 0.0) + e.amount;
 
-      e.splits.forEach((uid, owed) {
+      e.splitsAmountOwed.forEach((uid, owed) {
         totalOwedByMember[uid] = (totalOwedByMember[uid] ?? 0.0) + owed;
         netBalances[uid] = (netBalances[uid] ?? 0.0) - owed;
       });
@@ -327,7 +332,7 @@ class ExportHelper {
                 final categoryName = formatCategoryName(e.category, categoryNames);
                 final payerName = memberNames[e.payerUid] ?? 'Unknown';
                 final splitType = e.splitType.toUpperCase();
-                final portionText = _buildPortionBreakdownText(e.splits, memberNames);
+                final portionText = _buildPortionBreakdownText(e.splitsAmountOwed, memberNames);
 
                 return [
                   dateStr,

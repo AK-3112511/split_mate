@@ -100,13 +100,12 @@ class AuthRepository {
     final doc = await docRef.get();
     
     if (!doc.exists) {
-      final uuid = const Uuid();
       final defaultCategories = [
-        {'id': uuid.v4(), 'name': 'Food', 'iconCode': 'restaurant', 'colorHex': 'FF5722'},
-        {'id': uuid.v4(), 'name': 'Rent', 'iconCode': 'home', 'colorHex': '2196F3'},
-        {'id': uuid.v4(), 'name': 'Travel', 'iconCode': 'directions_car', 'colorHex': '4CAF50'},
-        {'id': uuid.v4(), 'name': 'Entertainment', 'iconCode': 'movie', 'colorHex': '9C27B0'},
-        {'id': uuid.v4(), 'name': 'Utilities', 'iconCode': 'electrical_services', 'colorHex': 'FFEB3B'},
+        {'id': 'food', 'name': 'Food', 'iconCode': 'restaurant', 'colorHex': 'FF5722'},
+        {'id': 'rent', 'name': 'Rent', 'iconCode': 'home', 'colorHex': '2196F3'},
+        {'id': 'travel', 'name': 'Travel', 'iconCode': 'directions_car', 'colorHex': '4CAF50'},
+        {'id': 'entertainment', 'name': 'Entertainment', 'iconCode': 'movie', 'colorHex': '9C27B0'},
+        {'id': 'utilities', 'name': 'Utilities', 'iconCode': 'electrical_services', 'colorHex': 'FFEB3B'},
       ];
       
       await docRef.set({

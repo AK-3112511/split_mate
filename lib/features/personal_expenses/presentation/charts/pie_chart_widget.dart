@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import 'package:intl/intl.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/category_helper.dart';
 import '../../../categories/domain/category_model.dart';
 import '../../domain/expense_model.dart';
 
@@ -29,41 +30,38 @@ class PieChartWidget extends StatelessWidget {
       );
     }
 
-    // Map categories by ID for quick access
-    final categoryMap = {for (var c in categories) c.id: c};
+    // Group and resolve categories using CategoryHelper
+    final categoryGroupMap = CategoryHelper.groupExpensesByCategory(
+      items: expenses,
+      getCategoryKey: (e) => e.category,
+      getAmount: (e) => e.amount,
+      userCategories: categories,
+    );
 
-    // Calculate sum per category ID
-    final Map<String, double> categorySums = {};
     double totalSum = 0;
-
-    for (var expense in expenses) {
-      categorySums[expense.category] = (categorySums[expense.category] ?? 0.0) + expense.amount;
-      totalSum += expense.amount;
-    }
-
+    categoryGroupMap.forEach((_, sum) => totalSum += sum);
     if (totalSum == 0) totalSum = 1.0; // avoid division by zero
 
     // Sort categories descending by sum
-    final sortedCategories = categorySums.entries.toList()
+    final sortedEntries = categoryGroupMap.entries.toList()
       ..sort((a, b) => b.value.compareTo(a.value));
 
     // Get largest category info
     String largestCategoryName = 'NONE';
     double largestCategoryPercentage = 0.0;
     
-    if (sortedCategories.isNotEmpty) {
-      final largestEntry = sortedCategories.first;
-      final cat = categoryMap[largestEntry.key];
-      largestCategoryName = cat?.name.toUpperCase() ?? 'OTHERS';
+    if (sortedEntries.isNotEmpty) {
+      final largestEntry = sortedEntries.first;
+      largestCategoryName = largestEntry.key.name.toUpperCase();
       largestCategoryPercentage = (largestEntry.value / totalSum) * 100;
     }
 
     final currencyFormatter = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
 
     // Build fl_chart sections
-    final sections = sortedCategories.map((entry) {
-      final cat = categoryMap[entry.key];
-      final color = cat?.color ?? AppTheme.textSecondary;
+    final sections = sortedEntries.map((entry) {
+      final cat = entry.key;
+      final color = cat.color;
       final value = entry.value;
 
       return PieChartSectionData(
@@ -123,13 +121,13 @@ class PieChartWidget extends StatelessWidget {
         ListView.separated(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          itemCount: sortedCategories.length,
+          itemCount: sortedEntries.length,
           separatorBuilder: (context, index) => const SizedBox(height: 12),
           itemBuilder: (context, index) {
-            final entry = sortedCategories[index];
-            final cat = categoryMap[entry.key];
-            final name = cat?.name ?? 'Others';
-            final color = cat?.color ?? AppTheme.textSecondary;
+            final entry = sortedEntries[index];
+            final cat = entry.key;
+            final name = cat.name;
+            final color = cat.color;
             final amount = entry.value;
 
             return Row(

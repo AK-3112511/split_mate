@@ -8,6 +8,7 @@ import '../../auth/data/auth_repository.dart';
 import '../../friends/data/friends_repository.dart';
 import '../data/groups_repository.dart';
 import '../data/group_expenses_repository.dart';
+import '../data/group_mirror_service.dart';
 import '../../groups/domain/group_model.dart';
 import '../../../core/utils/settlement_algorithm.dart';
 import '../../notifications/data/notifications_repository.dart';
@@ -216,8 +217,7 @@ class SettlementScreen extends ConsumerWidget {
                           child: Center(
                             child: Consumer(
                               builder: (context, ref, child) {
-                                final details = ref.watch(friendDetailsProvider(memberUid));
-                                final name = details.value?['displayName'] ?? '';
+                                final name = ref.watch(resolvedMemberNameProvider(memberUid));
                                 final initials = name.isNotEmpty
                                     ? name.trim().split(' ').map((e) => e[0]).take(2).join().toUpperCase()
                                     : 'U';
@@ -235,9 +235,9 @@ class SettlementScreen extends ConsumerWidget {
                         ),
                         title: Consumer(
                           builder: (context, ref, child) {
-                            final details = ref.watch(friendDetailsProvider(memberUid));
+                            final name = ref.watch(resolvedMemberNameProvider(memberUid));
                             return Text(
-                              details.value?['displayName'] ?? 'Group Member',
+                              name,
                               style: const TextStyle(color: AppTheme.textPrimary, fontSize: 13, fontWeight: FontWeight.bold),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -355,9 +355,9 @@ class SettlementScreen extends ConsumerWidget {
                                         Expanded(
                                           child: Consumer(
                                             builder: (context, ref, child) {
-                                              final details = ref.watch(friendDetailsProvider(otherUid));
+                                              final name = ref.watch(resolvedMemberNameProvider(otherUid));
                                               return Text(
-                                                details.value?['displayName'] ?? 'Group Member',
+                                                name,
                                                 style: const TextStyle(
                                                   color: AppTheme.textPrimary,
                                                   fontWeight: FontWeight.bold,
@@ -622,7 +622,16 @@ class SettlementScreen extends ConsumerWidget {
 
     if (confirm == true) {
       try {
+        // 1. Record the settlement payment in the group ledger.
         await ref.read(groupExpensesRepositoryProvider).recordPayment(groupId, fromUid, toUid, amount);
+
+        // 2. Section 12: Mark all pairwise unsettled split entries as settled.
+        //    This covers expenses paid by fromUid (toUid owes) and expenses paid by toUid (fromUid owes).
+        await ref.read(groupExpensesRepositoryProvider).markSplitsSettled(groupId, fromUid, toUid);
+
+        // 3. Section 12: Trigger mirror scan for the current user immediately,
+        //    so their personal list updates without waiting for the next app launch.
+        await runGroupMirrorScan(ref);
 
         final currentUid = ref.read(firebaseAuthProvider).currentUser?.uid ?? '';
         final otherUid = fromUid == currentUid ? toUid : fromUid;

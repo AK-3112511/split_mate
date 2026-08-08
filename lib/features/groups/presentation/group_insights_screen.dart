@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../../core/utils/category_helper.dart';
 import '../../categories/data/categories_repository.dart';
 import '../../categories/domain/category_model.dart';
 import '../data/groups_repository.dart';
@@ -110,15 +111,16 @@ class _GroupInsightsScreenState extends ConsumerState<GroupInsightsScreen> {
 
     final double selectedMonthTotal = selectedMonthExpenses.fold(0.0, (sum, exp) => sum + exp.amount);
 
-    // 3. Category Breakdown for selected month
-    final Map<String, double> categorySums = {};
-    for (final exp in selectedMonthExpenses) {
-      categorySums[exp.category] = (categorySums[exp.category] ?? 0.0) + exp.amount;
-    }
+    // 3. Category Breakdown for selected month (resolved via CategoryHelper)
+    final categoryGroupMap = CategoryHelper.groupExpensesByCategory(
+      items: selectedMonthExpenses,
+      getCategoryKey: (exp) => exp.category,
+      getAmount: (exp) => exp.amount,
+      userCategories: categories,
+    );
 
-    final categoryMap = {for (var c in categories) c.id: c};
-    final sortedCategoryKeys = categorySums.keys.toList()
-      ..sort((a, b) => categorySums[b]!.compareTo(categorySums[a]!));
+    final sortedCategoryEntries = categoryGroupMap.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
 
     return SingleChildScrollView(
       physics: const BouncingScrollPhysics(),
@@ -199,15 +201,15 @@ class _GroupInsightsScreenState extends ConsumerState<GroupInsightsScreen> {
                 child: ListView.separated(
                   shrinkWrap: true,
                   physics: const NeverScrollableScrollPhysics(),
-                  itemCount: sortedCategoryKeys.length,
+                  itemCount: sortedCategoryEntries.length,
                   separatorBuilder: (context, index) => Divider(color: AppTheme.textSecondary.withValues(alpha: 0.15), height: 1),
                   itemBuilder: (context, index) {
-                    final catId = sortedCategoryKeys[index];
-                    final sum = categorySums[catId] ?? 0.0;
-                    final category = categoryMap[catId];
-                    final catName = category?.name ?? 'Others';
-                    final catColor = category?.color ?? AppTheme.textSecondary;
-                    final catIcon = category?.icon ?? Icons.help_outline;
+                    final entry = sortedCategoryEntries[index];
+                    final category = entry.key;
+                    final sum = entry.value;
+                    final catName = category.name;
+                    final catColor = category.color;
+                    final catIcon = category.icon;
                     final double percentage = selectedMonthTotal > 0 ? sum / selectedMonthTotal : 0.0;
 
                     return Padding(

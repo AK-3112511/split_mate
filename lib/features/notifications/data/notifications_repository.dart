@@ -192,6 +192,154 @@ class NotificationsRepository {
     await batch.commit();
   }
 
+  Future<void> sendGroupMemberLeft({
+    required List<String> recipientUids,
+    required String groupId,
+    required String groupName,
+  }) async {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) return;
+    final senderUid = currentUser.uid;
+    final senderName = currentUser.displayName ?? 'Member';
+
+    final batch = _firestore.batch();
+    for (final rUid in recipientUids) {
+      if (rUid == senderUid) continue;
+      final docRef = _firestore.collection('notifications').doc();
+      final notification = NotificationModel(
+        id: docRef.id,
+        recipientUid: rUid,
+        senderUid: senderUid,
+        senderName: senderName,
+        groupId: groupId,
+        groupName: groupName,
+        amount: 0.0,
+        type: 'member_left',
+        message: '$senderName left the group "$groupName"',
+        createdAt: DateTime.now(),
+        isRead: false,
+      );
+      batch.set(docRef, notification.toMap());
+    }
+    await batch.commit();
+  }
+
+  Future<void> sendGroupMemberRemoved({
+    required String removedMemberUid,
+    required List<String> remainingRecipientUids,
+    required String groupId,
+    required String groupName,
+    required String removedMemberName,
+  }) async {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) return;
+    final senderUid = currentUser.uid;
+    final senderName = currentUser.displayName ?? 'Admin';
+
+    final batch = _firestore.batch();
+
+    // Notify removed member
+    final docRefRemoved = _firestore.collection('notifications').doc();
+    batch.set(docRefRemoved, NotificationModel(
+      id: docRefRemoved.id,
+      recipientUid: removedMemberUid,
+      senderUid: senderUid,
+      senderName: senderName,
+      groupId: groupId,
+      groupName: groupName,
+      amount: 0.0,
+      type: 'member_removed',
+      message: 'You were removed from "$groupName" by $senderName',
+      createdAt: DateTime.now(),
+      isRead: false,
+    ).toMap());
+
+    // Notify remaining members
+    for (final rUid in remainingRecipientUids) {
+      if (rUid == senderUid || rUid == removedMemberUid) continue;
+      final docRef = _firestore.collection('notifications').doc();
+      batch.set(docRef, NotificationModel(
+        id: docRef.id,
+        recipientUid: rUid,
+        senderUid: senderUid,
+        senderName: senderName,
+        groupId: groupId,
+        groupName: groupName,
+        amount: 0.0,
+        type: 'member_removed',
+        message: '$removedMemberName was removed from "$groupName" by $senderName',
+        createdAt: DateTime.now(),
+        isRead: false,
+      ).toMap());
+    }
+
+    await batch.commit();
+  }
+
+  Future<void> sendGroupEdited({
+    required List<String> recipientUids,
+    required String groupId,
+    required String groupName,
+  }) async {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) return;
+    final senderUid = currentUser.uid;
+    final senderName = currentUser.displayName ?? 'Member';
+
+    final batch = _firestore.batch();
+    for (final rUid in recipientUids) {
+      if (rUid == senderUid) continue;
+      final docRef = _firestore.collection('notifications').doc();
+      final notification = NotificationModel(
+        id: docRef.id,
+        recipientUid: rUid,
+        senderUid: senderUid,
+        senderName: senderName,
+        groupId: groupId,
+        groupName: groupName,
+        amount: 0.0,
+        type: 'group_edited',
+        message: '$senderName updated details for group "$groupName"',
+        createdAt: DateTime.now(),
+        isRead: false,
+      );
+      batch.set(docRef, notification.toMap());
+    }
+    await batch.commit();
+  }
+
+  Future<void> sendGroupDeleted({
+    required List<String> recipientUids,
+    required String groupId,
+    required String groupName,
+  }) async {
+    final currentUser = _auth.currentUser;
+    if (currentUser == null) return;
+    final senderUid = currentUser.uid;
+    final senderName = currentUser.displayName ?? 'Admin';
+
+    final batch = _firestore.batch();
+    for (final rUid in recipientUids) {
+      if (rUid == senderUid) continue;
+      final docRef = _firestore.collection('notifications').doc();
+      final notification = NotificationModel(
+        id: docRef.id,
+        recipientUid: rUid,
+        senderUid: senderUid,
+        senderName: senderName,
+        groupId: groupId,
+        groupName: groupName,
+        amount: 0.0,
+        type: 'group_deleted',
+        message: '$senderName deleted the group "$groupName"',
+        createdAt: DateTime.now(),
+        isRead: false,
+      );
+      batch.set(docRef, notification.toMap());
+    }
+    await batch.commit();
+  }
+
   Future<void> markAsRead(String notificationId) async {
     await _firestore.collection('notifications').doc(notificationId).update({'isRead': true});
   }

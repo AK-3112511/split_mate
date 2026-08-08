@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:fl_chart/fl_chart.dart';
 import '../../../../core/theme/app_theme.dart';
+import '../../../../core/utils/category_helper.dart';
 import '../../../categories/domain/category_model.dart';
 import '../../domain/expense_model.dart';
 
@@ -28,25 +29,23 @@ class BarChartWidget extends StatelessWidget {
       );
     }
 
-    // Map categories by ID
-    final categoryMap = {for (var c in categories) c.id: c};
+    // Group and resolve categories using CategoryHelper
+    final categoryGroupMap = CategoryHelper.groupExpensesByCategory(
+      items: expenses,
+      getCategoryKey: (e) => e.category,
+      getAmount: (e) => e.amount,
+      userCategories: categories,
+    );
 
-    // Calculate sum per category ID
-    final Map<String, double> categorySums = {};
-    for (var expense in expenses) {
-      categorySums[expense.category] =
-          (categorySums[expense.category] ?? 0.0) + expense.amount;
-    }
+    // Sort descending by total amount
+    final sortedEntries = categoryGroupMap.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
 
-    // Create sorted list of category IDs (highest spend first)
-    final presentCategoryKeys = categorySums.keys.toList()
-      ..sort((a, b) => categorySums[b]!.compareTo(categorySums[a]!));
-
-    final barGroups = List.generate(presentCategoryKeys.length, (index) {
-      final key = presentCategoryKeys[index];
-      final sum = categorySums[key] ?? 0.0;
-      final cat = categoryMap[key];
-      final color = cat?.color ?? AppTheme.textSecondary;
+    final barGroups = List.generate(sortedEntries.length, (index) {
+      final entry = sortedEntries[index];
+      final sum = entry.value;
+      final cat = entry.key;
+      final color = cat.color;
 
       return BarChartGroupData(
         x: index,
@@ -84,9 +83,8 @@ class BarChartWidget extends StatelessWidget {
                     reservedSize: 28,
                     getTitlesWidget: (double value, TitleMeta meta) {
                       final int index = value.toInt();
-                      if (index >= 0 && index < presentCategoryKeys.length) {
-                        final key = presentCategoryKeys[index];
-                        final sum = categorySums[key] ?? 0.0;
+                      if (index >= 0 && index < sortedEntries.length) {
+                        final sum = sortedEntries[index].value;
                         return Padding(
                           padding: const EdgeInsets.only(bottom: 4.0),
                           child: Text(
@@ -109,19 +107,18 @@ class BarChartWidget extends StatelessWidget {
                 leftTitles: const AxisTitles(
                   sideTitles: SideTitles(showTitles: false),
                 ),
-                // ── BOTTOM: category name only (icon rendered separately) ──
+                // ── BOTTOM: category icon + category name ─────────────────
                 bottomTitles: AxisTitles(
                   sideTitles: SideTitles(
                     showTitles: true,
                     reservedSize: 48,
                     getTitlesWidget: (double value, TitleMeta meta) {
                       final int index = value.toInt();
-                      if (index >= 0 && index < presentCategoryKeys.length) {
-                        final key = presentCategoryKeys[index];
-                        final cat = categoryMap[key];
-                        final name = cat?.name ?? 'Others';
-                        final icon = cat?.icon ?? Icons.category;
-                        final color = cat?.color ?? AppTheme.textSecondary;
+                      if (index >= 0 && index < sortedEntries.length) {
+                        final cat = sortedEntries[index].key;
+                        final name = cat.name;
+                        final icon = cat.icon;
+                        final color = cat.color;
                         return Padding(
                           padding: const EdgeInsets.only(top: 6.0),
                           child: Column(

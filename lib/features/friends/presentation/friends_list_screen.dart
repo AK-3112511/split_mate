@@ -8,6 +8,7 @@ import '../../../core/utils/settlement_algorithm.dart';
 import '../../auth/data/auth_repository.dart';
 import '../data/friends_repository.dart';
 import '../domain/friend_model.dart';
+import '../../../core/utils/export_helper.dart';
 
 class FriendsListScreen extends ConsumerStatefulWidget {
   const FriendsListScreen({super.key});
@@ -191,6 +192,90 @@ class _FriendsListScreenState extends ConsumerState<FriendsListScreen> {
     );
   }
 
+  Future<void> _showEditNicknameDialog(FriendModel friend, String currentDisplayName) async {
+    final controller = TextEditingController(text: friend.nickname ?? '');
+
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          backgroundColor: AppTheme.surfaceCard,
+          shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+          title: Text(
+            'EDIT FRIEND NICKNAME',
+            style: AppTheme.monoStyle.copyWith(
+              color: AppTheme.accent,
+              fontWeight: FontWeight.bold,
+              fontSize: 14,
+              letterSpacing: 1.0,
+            ),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Original Name: $currentDisplayName',
+                style: AppTheme.monoSecondary.copyWith(fontSize: 11),
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                controller: controller,
+                autofocus: true,
+                style: const TextStyle(color: AppTheme.textPrimary, fontSize: 14),
+                decoration: const InputDecoration(
+                  labelText: 'NICKNAME / CALL SIGN',
+                  hintText: 'e.g. Bro, Sunny, Monu',
+                  labelStyle: TextStyle(color: AppTheme.accent, fontSize: 11),
+                  enabledBorder: UnderlineInputBorder(borderSide: BorderSide(color: AppTheme.textSecondary)),
+                  focusedBorder: UnderlineInputBorder(borderSide: BorderSide(color: AppTheme.accent)),
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('CANCEL', style: TextStyle(color: AppTheme.textSecondary)),
+            ),
+            if (friend.nickname != null && friend.nickname!.isNotEmpty)
+              TextButton(
+                onPressed: () async {
+                  await ref.read(friendsRepositoryProvider).updateFriendNickname(friend.uid, '');
+                  if (context.mounted) {
+                    Navigator.pop(context);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Nickname reset to original name'),
+                        backgroundColor: AppTheme.accent,
+                      ),
+                    );
+                  }
+                },
+                child: const Text('RESET', style: TextStyle(color: AppTheme.semanticNegative)),
+              ),
+            TextButton(
+              onPressed: () async {
+                final newNick = controller.text.trim();
+                await ref.read(friendsRepositoryProvider).updateFriendNickname(friend.uid, newNick);
+                if (context.mounted) {
+                  Navigator.pop(context);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text(newNick.isNotEmpty ? 'Nickname updated to "$newNick"' : 'Nickname reset'),
+                      backgroundColor: AppTheme.accent,
+                    ),
+                  );
+                }
+              },
+              child: const Text('SAVE', style: TextStyle(color: AppTheme.accent, fontWeight: FontWeight.bold)),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final friendsAsync = ref.watch(friendsStreamProvider);
@@ -298,9 +383,10 @@ class _FriendsListScreenState extends ConsumerState<FriendsListScreen> {
       if (_searchQuery.trim().isEmpty) return true;
       final queryLower = _searchQuery.trim().toLowerCase();
       final details = ref.watch(friendDetailsProvider(friend.uid)).value;
-      final name = (details?['displayName'] ?? '').toString().toLowerCase();
+      final originalName = (details?['displayName'] ?? '').toString().toLowerCase();
+      final nickname = (friend.nickname ?? '').toLowerCase();
       final code = (details?['appCode'] ?? '').toString().toLowerCase();
-      return name.contains(queryLower) || code.contains(queryLower);
+      return originalName.contains(queryLower) || nickname.contains(queryLower) || code.contains(queryLower);
     }).toList();
     
     // Distinguish incoming and outgoing pending requests
@@ -318,50 +404,141 @@ class _FriendsListScreenState extends ConsumerState<FriendsListScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Connect card
-            InkWell(
-              onTap: () => _showAddFriendDialog(myAppCode),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                decoration: BoxDecoration(
-                  border: Border.all(color: AppTheme.accent.withValues(alpha: 0.8)),
-                  color: Colors.transparent,
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(10),
-                      decoration: BoxDecoration(
-                        color: AppTheme.surfaceCard,
-                        border: Border.all(color: AppTheme.accent.withValues(alpha: 0.4)),
+            // Top Banner: Your Friend Code & Connect with Friend
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                border: Border.all(color: AppTheme.accent.withValues(alpha: 0.8)),
+                color: AppTheme.surfaceCard.withValues(alpha: 0.25),
+              ),
+              child: Column(
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Flexible(
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            const Icon(Icons.qr_code_2_outlined, color: AppTheme.accent, size: 18),
+                            const SizedBox(width: 6),
+                            Flexible(
+                              child: Text(
+                                'YOUR CODE',
+                                style: AppTheme.monoStyle.copyWith(
+                                  color: AppTheme.accent,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 11,
+                                  letterSpacing: 0.5,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      child: const Icon(Icons.person_add_alt_1_outlined, color: AppTheme.accent, size: 22),
-                    ),
-                    const SizedBox(width: 16),
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      const SizedBox(width: 8),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(
-                            'CONNECT WITH FRIEND',
-                            style: AppTheme.monoStyle.copyWith(
-                              color: AppTheme.accent,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 13,
-                              letterSpacing: 1.0,
+                          InkWell(
+                            onTap: () {
+                              Clipboard.setData(ClipboardData(text: myAppCode));
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Friend invite code copied to clipboard!'),
+                                  backgroundColor: AppTheme.accent,
+                                ),
+                              );
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                              decoration: const BoxDecoration(
+                                color: AppTheme.accent,
+                                borderRadius: BorderRadius.zero,
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    myAppCode,
+                                    style: AppTheme.monoStyle.copyWith(
+                                      color: Colors.black,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 1.2,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  const Icon(Icons.copy, color: Colors.black, size: 13),
+                                ],
+                              ),
                             ),
                           ),
-                          const SizedBox(height: 4),
-                          Text(
-                            'Add friend via unique code to send group invites & track splits.',
-                            style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+                          const SizedBox(width: 6),
+                          InkWell(
+                            onTap: () {
+                              final currentUser = ref.read(firebaseAuthProvider).currentUser;
+                              ExportHelper.shareFriendAppCode(
+                                appCode: myAppCode,
+                                displayName: currentUser?.displayName ?? 'User',
+                              );
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.all(5),
+                              decoration: BoxDecoration(
+                                border: Border.all(color: AppTheme.accent),
+                                color: AppTheme.surfaceCard,
+                              ),
+                              child: const Icon(Icons.share, color: AppTheme.accent, size: 13),
+                            ),
                           ),
                         ],
                       ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Divider(color: AppTheme.textSecondary.withValues(alpha: 0.15), height: 1),
+                  const SizedBox(height: 12),
+                  InkWell(
+                    onTap: () => _showAddFriendDialog(myAppCode),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: AppTheme.surfaceCard,
+                            border: Border.all(color: AppTheme.accent.withValues(alpha: 0.4)),
+                          ),
+                          child: const Icon(Icons.person_add_alt_1_outlined, color: AppTheme.accent, size: 18),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'CONNECT WITH FRIEND',
+                                style: AppTheme.monoStyle.copyWith(
+                                  color: AppTheme.accent,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 12,
+                                  letterSpacing: 1.0,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                'Enter a friend\'s 6-character app code to connect.',
+                                style: TextStyle(color: AppTheme.textSecondary, fontSize: 11),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Icon(Icons.chevron_right, color: AppTheme.accent),
+                      ],
                     ),
-                    const Icon(Icons.chevron_right, color: AppTheme.accent),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 24),
@@ -596,9 +773,12 @@ class _FriendsListScreenState extends ConsumerState<FriendsListScreen> {
 
     return detailsAsync.when(
       data: (details) {
-        final name = details?['displayName'] ?? 'User';
-        final avatarInitials = name.isNotEmpty
-            ? name.trim().split(' ').map((e) => e[0]).take(2).join().toUpperCase()
+        final originalName = details?['displayName'] ?? 'User';
+        final hasNickname = friend.nickname != null && friend.nickname!.isNotEmpty;
+        final displayName = hasNickname ? friend.nickname! : originalName;
+
+        final avatarInitials = displayName.isNotEmpty
+            ? displayName.trim().split(' ').map((e) => e[0]).take(2).join().toUpperCase()
             : 'U';
         final photoUrl = details?['photoUrl'];
 
@@ -646,11 +826,46 @@ class _FriendsListScreenState extends ConsumerState<FriendsListScreen> {
                     ),
                   ),
           ),
-          title: Text(
-            name,
-            style: const TextStyle(color: AppTheme.textPrimary, fontSize: 15, fontWeight: FontWeight.bold),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Flexible(
+                    child: Text(
+                      displayName,
+                      style: const TextStyle(color: AppTheme.textPrimary, fontSize: 15, fontWeight: FontWeight.bold),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  InkWell(
+                    onTap: () => _showEditNicknameDialog(friend, originalName),
+                    borderRadius: BorderRadius.circular(4),
+                    child: Padding(
+                      padding: const EdgeInsets.all(4.0),
+                      child: Icon(
+                        Icons.edit_outlined,
+                        color: AppTheme.accent.withValues(alpha: 0.7),
+                        size: 13,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              if (hasNickname)
+                Padding(
+                  padding: const EdgeInsets.only(top: 2.0),
+                  child: Text(
+                    '($originalName)',
+                    style: AppTheme.monoSecondary.copyWith(fontSize: 10),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+            ],
           ),
           subtitle: Padding(
             padding: const EdgeInsets.only(top: 4.0),
