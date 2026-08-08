@@ -5,7 +5,7 @@
 ---
 
 ## 📲 Download APK
-👉 [**Download the latest APK here**](https://github.com/AK-3112511/split_mate/releases/download/v1.0.0/app-release.apk)
+👉 [**Download the latest APK here**](https://github.com/AK-3112511/split_mate/releases/download/v1.0.1/app-release.apk)
 
 ---
 
