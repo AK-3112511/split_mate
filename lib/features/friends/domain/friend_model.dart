@@ -1,49 +1,49 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../personal_expenses/domain/expense_model.dart' show readDate;
 
+/// Edge in friends/{me}/friendList/{them}. Both directions are written together.
 class FriendModel {
+  static const String pending = 'pending';
+  static const String accepted = 'accepted';
+
   final String uid;
-  final String status; // 'pending' | 'accepted'
-  final double balance; // positive: they owe you, negative: you owe them
+  final String status;
   final DateTime addedAt;
-  final String sentBy; // Who initiated the request
+
+  /// Who sent the request.
+  final String sentBy;
+
+  /// My private nickname for this friend (stored on *my* edge only).
   final String? nickname;
 
-  FriendModel({
+  const FriendModel({
     required this.uid,
     required this.status,
-    required this.balance,
     required this.addedAt,
     required this.sentBy,
     this.nickname,
   });
 
-  Map<String, dynamic> toMap() {
-    return {
-      'uid': uid,
-      'status': status,
-      'balance': balance,
-      'addedAt': Timestamp.fromDate(addedAt),
-      'sentBy': sentBy,
-      if (nickname != null) 'nickname': nickname,
-    };
-  }
+  bool get isAccepted => status == accepted;
+  bool get isPending => status == pending;
+  bool isIncomingFor(String me) => isPending && sentBy != me;
+  bool isOutgoingFor(String me) => isPending && sentBy == me;
+
+  Map<String, dynamic> toMap() => {
+        'uid': uid,
+        'status': status,
+        'addedAt': Timestamp.fromDate(addedAt),
+        'sentBy': sentBy,
+      };
 
   factory FriendModel.fromMap(Map<String, dynamic> map, String docId) {
-    final rawDate = map['addedAt'];
-    DateTime parsedDate = DateTime.now();
-    if (rawDate is Timestamp) {
-      parsedDate = rawDate.toDate();
-    } else if (rawDate is String) {
-      parsedDate = DateTime.tryParse(rawDate) ?? DateTime.now();
-    }
-
+    final nick = (map['nickname'] as String?)?.trim();
     return FriendModel(
-      uid: map['uid'] ?? docId,
-      status: map['status'] ?? 'pending',
-      balance: (map['balance'] ?? 0.0).toDouble(),
-      addedAt: parsedDate,
-      sentBy: map['sentBy'] ?? '',
-      nickname: map['nickname'] as String?,
+      uid: (map['uid'] ?? docId).toString(),
+      status: (map['status'] ?? pending).toString(),
+      addedAt: readDate(map['addedAt']) ?? DateTime.now(),
+      sentBy: (map['sentBy'] ?? '').toString(),
+      nickname: (nick == null || nick.isEmpty) ? null : nick,
     );
   }
 }

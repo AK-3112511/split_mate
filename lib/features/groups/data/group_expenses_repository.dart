@@ -1,470 +1,369 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:uuid/uuid.dart';
+import '../../../core/domain/settlement.dart';
+import '../../../core/utils/app_exception.dart';
 import '../../../core/utils/firestore_helper.dart';
+import '../../../core/utils/image_codec.dart';
+import '../../../core/utils/money.dart';
+import '../../../core/utils/write_helper.dart';
 import '../../auth/data/auth_repository.dart';
+import '../../notifications/data/notifications_repository.dart';
+import '../../notifications/domain/notification_model.dart';
+import '../../receipts/data/receipts_repository.dart';
+import '../domain/group_activity_model.dart';
 import '../domain/group_expense_model.dart';
+import '../domain/group_model.dart';
+import 'group_mirror_service.dart';
 
-class GroupActivityModel {
-  final String activityId;
-  final String type; // "expense_added" | "expense_edited" | "expense_deleted" | "settled_up"
-  final String actorUid;
-  final String? expenseId; // linked expense document ID
-  final String message;
-  final DateTime createdAt;
+/// Real (non-template, non-deleted) expenses and payments, newest first.
+final groupExpensesStreamProvider =
+    StreamProvider.autoDispose.family<List<GroupExpenseModel>, String>((ref, groupId) {
+  if (ref.watch(currentUidProvider) == null) return Stream.value(const []);
+  return ref.watch(groupExpensesRepositoryProvider).streamExpenses(groupId);
+});
 
-  GroupActivityModel({
-    required this.activityId,
-    required this.type,
-    required this.actorUid,
-    this.expenseId,
-    required this.message,
-    required this.createdAt,
-  });
+/// Recurring templates (including paused ones).
+final groupTemplatesStreamProvider =
+    StreamProvider.autoDispose.family<List<GroupExpenseModel>, String>((ref, groupId) {
+  if (ref.watch(currentUidProvider) == null) return Stream.value(const []);
+  return ref.watch(groupExpensesRepositoryProvider).streamTemplates(groupId);
+});
 
-  Map<String, dynamic> toMap() {
-    return {
-      'type': type,
-      'actorUid': actorUid,
-      'expenseId': expenseId,
-      'message': message,
-      'createdAt': Timestamp.fromDate(createdAt),
-    };
-  }
-
-  factory GroupActivityModel.fromMap(Map<String, dynamic> map, String id) {
-    final rawDate = map['createdAt'];
-    DateTime parsedDate = DateTime.now();
-    if (rawDate is Timestamp) {
-      parsedDate = rawDate.toDate();
-    } else if (rawDate is String) {
-      parsedDate = DateTime.tryParse(rawDate) ?? DateTime.now();
-    }
-
-    return GroupActivityModel(
-      activityId: id,
-      type: map['type'] ?? '',
-      actorUid: map['actorUid'] ?? '',
-      expenseId: map['expenseId'],
-      message: map['message'] ?? '',
-      createdAt: parsedDate,
-    );
-  }
-}
+final groupActivityStreamProvider =
+    StreamProvider.autoDispose.family<List<GroupActivityModel>, String>((ref, groupId) {
+  if (ref.watch(currentUidProvider) == null) return Stream.value(const []);
+  return ref.watch(groupExpensesRepositoryProvider).streamActivity(groupId);
+});
 
 final groupExpensesRepositoryProvider = Provider<GroupExpensesRepository>((ref) {
   return GroupExpensesRepository(
     ref.watch(firestoreProvider),
-    ref.watch(firebaseAuthProvider),
-  );
-});
-
-final groupExpensesStreamProvider = StreamProvider.family<List<GroupExpenseModel>, String>((ref, groupId) {
-  final authState = ref.watch(authStateProvider);
-  return authState.when(
-    data: (user) {
-      if (user == null) return const Stream.empty();
-      final repository = ref.watch(groupExpensesRepositoryProvider);
-      return repository.streamGroupExpenses(groupId);
-    },
-    loading: () => const Stream.empty(),
-    error: (err, stack) => const Stream.empty(),
-  );
-});
-
-final groupTemplatesStreamProvider = StreamProvider.family<List<GroupExpenseModel>, String>((ref, groupId) {
-  final authState = ref.watch(authStateProvider);
-  return authState.when(
-    data: (user) {
-      if (user == null) return const Stream.empty();
-      final repository = ref.watch(groupExpensesRepositoryProvider);
-      return repository.streamGroupTemplates(groupId);
-    },
-    loading: () => const Stream.empty(),
-    error: (err, stack) => const Stream.empty(),
-  );
-});
-
-final groupActivityStreamProvider = StreamProvider.family<List<GroupActivityModel>, String>((ref, groupId) {
-  final authState = ref.watch(authStateProvider);
-  return authState.when(
-    data: (user) {
-      if (user == null) return const Stream.empty();
-      final repository = ref.watch(groupExpensesRepositoryProvider);
-      return repository.streamGroupActivity(groupId);
-    },
-    loading: () => const Stream.empty(),
-    error: (err, stack) => const Stream.empty(),
+    ref.watch(currentUidProvider),
+    ref.watch(notificationsRepositoryProvider),
+    ref.watch(receiptsRepositoryProvider),
+    ref.watch(mirrorServiceProvider),
   );
 });
 
 class GroupExpensesRepository {
-  final FirebaseFirestore _firestore;
-  final FirebaseAuth _auth;
+  final FirebaseFirestore _db;
+  final String? _uid;
+  final NotificationsRepository _notify;
+  final ReceiptsRepository _receipts;
+  final MirrorService _mirrors;
 
-  GroupExpensesRepository(this._firestore, this._auth);
+  GroupExpensesRepository(this._db, this._uid, this._notify, this._receipts, this._mirrors);
 
-  String? get _currentUid => _auth.currentUser?.uid;
+  String get _me {
+    final uid = _uid;
+    if (uid == null) throw const AppException('Please sign in again.');
+    return uid;
+  }
 
-  Stream<List<GroupExpenseModel>> streamGroupExpenses(String groupId) {
-    return retryOnPermissionDenied(() => _firestore
-        .collection('groups')
-        .doc(groupId)
-        .collection('expenses')
+  String get _myName => _notify.senderName;
+
+  CollectionReference<Map<String, dynamic>> _expenses(String groupId) =>
+      _db.collection('groups').doc(groupId).collection('expenses');
+
+  void _activity(WriteBatch batch, String groupId, String type, String message, {String? expenseId}) {
+    batch.set(_db.collection('groups').doc(groupId).collection('activity').doc(), {
+      'type': type,
+      'actorUid': _me,
+      'expenseId': expenseId,
+      'message': message,
+      'createdAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  // ── Streams ───────────────────────────────────────────────────────────────
+
+  Stream<List<GroupExpenseModel>> streamExpenses(String groupId) {
+    return retryOnPermissionDenied(() => _expenses(groupId)
         .where('isDeleted', isEqualTo: false)
         .snapshots()
-        .map((snapshot) {
-          final list = snapshot.docs
-              .map((doc) => GroupExpenseModel.fromMap(doc.data(), doc.id))
+        .map((s) {
+          final list = s.docs
+              .map((d) => GroupExpenseModel.fromMap(d.data(), d.id))
               .where((e) => !e.isRecurringTemplate)
               .toList();
-          // Sort in-memory in Dart: descending order of creation (newest first)
-          list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          list.sort((a, b) {
+            final byDate = b.date.compareTo(a.date);
+            return byDate != 0 ? byDate : b.createdAt.compareTo(a.createdAt);
+          });
           return list;
         }));
   }
 
-  Stream<List<GroupExpenseModel>> streamGroupTemplates(String groupId) {
-    return retryOnPermissionDenied(() => _firestore
-        .collection('groups')
-        .doc(groupId)
-        .collection('expenses')
-        .where('isDeleted', isEqualTo: false)
+  Stream<List<GroupExpenseModel>> streamTemplates(String groupId) {
+    return retryOnPermissionDenied(() => _expenses(groupId)
+        .where('isRecurringTemplate', isEqualTo: true)
         .snapshots()
-        .map((snapshot) {
-          final list = snapshot.docs
-              .map((doc) => GroupExpenseModel.fromMap(doc.data(), doc.id))
-              .where((e) => e.isRecurringTemplate && !e.isCancelled)
-              .toList();
-          list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
-          return list;
-        }));
+        .map((s) => s.docs
+            .map((d) => GroupExpenseModel.fromMap(d.data(), d.id))
+            .where((e) => !e.isDeleted)
+            .toList()));
   }
 
-  Stream<List<GroupActivityModel>> streamGroupActivity(String groupId) {
-    return retryOnPermissionDenied(() => _firestore
+  Stream<List<GroupActivityModel>> streamActivity(String groupId) {
+    return retryOnPermissionDenied(() => _db
         .collection('groups')
         .doc(groupId)
         .collection('activity')
         .orderBy('createdAt', descending: true)
+        .limit(150)
         .snapshots()
-        .map((snapshot) {
-          return snapshot.docs
-              .map((doc) => GroupActivityModel.fromMap(doc.data(), doc.id))
-              .toList();
-        }));
+        .map((s) => s.docs.map((d) => GroupActivityModel.fromMap(d.data(), d.id)).toList()));
   }
 
-  Future<String> _getActorName(String uid) async {
-    try {
-      final userDoc = await _firestore.collection('users').doc(uid).get();
-      return userDoc.data()?['displayName'] ?? 'Someone';
-    } catch (_) {
-      return _auth.currentUser?.displayName ?? 'Someone';
+  String newExpenseId(String groupId) => _expenses(groupId).doc().id;
+
+  // ── Expenses ──────────────────────────────────────────────────────────────
+
+  Future<WriteOutcome> addExpense({
+    required GroupModel group,
+    required GroupExpenseModel expense,
+    EncodedImage? receipt,
+  }) async {
+    final batch = _db.batch();
+    String? receiptId;
+    if (receipt != null) {
+      receiptId = _receipts.stage(batch, receipt, groupId: group.groupId, expenseId: expense.expenseId);
     }
-  }
-
-  Future<void> addGroupExpense(String groupId, GroupExpenseModel expense) async {
-    final uid = _currentUid;
-    if (uid == null) throw Exception('User not authenticated');
-
-    final actorName = await _getActorName(uid);
-    final batch = _firestore.batch();
-    
-    final expenseDoc = _firestore
-        .collection('groups')
-        .doc(groupId)
-        .collection('expenses')
-        .doc(expense.expenseId);
-    batch.set(expenseDoc, expense.toMap());
-
-    // Do not log template creation as a normal expense added activity to avoid feed clutter
+    final data = expense.toMap()
+      ..['receiptId'] = receiptId
+      ..['createdBy'] = _me;
+    if (expense.isRecurringTemplate) data['recurrenceVersion'] = 2;
+    batch.set(_expenses(group.groupId).doc(expense.expenseId), data);
     if (!expense.isRecurringTemplate) {
-      final activityDoc = _firestore
-          .collection('groups')
-          .doc(groupId)
-          .collection('activity')
-          .doc();
-      batch.set(activityDoc, {
-        'type': 'expense_added',
-        'actorUid': uid,
-        'expenseId': expense.expenseId,
-        'message': '$actorName added "${expense.description}" of ₹${expense.amount.toStringAsFixed(2)}',
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+      _activity(batch, group.groupId, GroupActivityModel.expenseAdded,
+          '$_myName added "${expense.description}" · ${Money.format(expense.amount)}',
+          expenseId: expense.expenseId);
     }
-
-    await batch.commit();
+    final outcome = await commitWithTimeout(batch.commit());
+    if (!expense.isRecurringTemplate) {
+      runInBackground(() async {
+        await _mirrors.syncOne(group.groupId, group.name, expense);
+        await _notify.send(
+          recipients: group.members,
+          type: NotificationModel.expenseAdded,
+          message: '$_myName added "${expense.description}" (${Money.format(expense.amount)}) in ${group.name}',
+          groupId: group.groupId,
+          groupName: group.name,
+          expenseId: expense.expenseId,
+          amount: expense.amount,
+        );
+      }, label: 'expense added side effects');
+    }
+    return outcome;
   }
 
-  Future<void> updateGroupExpense(String groupId, GroupExpenseModel expense) async {
-    final uid = _currentUid;
-    if (uid == null) throw Exception('User not authenticated');
-
-    final actorName = await _getActorName(uid);
-
-    // Read old expense to build a rich diff message
-    String diffMessage;
-    try {
-      final oldDoc = await _firestore
-          .collection('groups')
-          .doc(groupId)
-          .collection('expenses')
-          .doc(expense.expenseId)
-          .get();
-      final oldData = oldDoc.data();
-      if (oldData != null) {
-        final oldExpense = GroupExpenseModel.fromMap(oldData, expense.expenseId);
-        final List<String> changes = [];
-
-        // Amount changed?
-        final oldAmt = oldExpense.amount;
-        final newAmt = expense.amount;
-        if ((oldAmt * 100).round() != (newAmt * 100).round()) {
-          changes.add('amount ₹${oldAmt.toStringAsFixed(2)} → ₹${newAmt.toStringAsFixed(2)}');
-        }
-
-        // Description changed?
-        final oldDesc = oldExpense.description.trim();
-        final newDesc = expense.description.trim();
-        if (oldDesc != newDesc && newDesc.isNotEmpty) {
-          changes.add('renamed "$oldDesc" → "$newDesc"');
-        }
-
-        // Category changed?
-        final oldCat = oldExpense.category.trim();
-        final newCat = expense.category.trim();
-        if (oldCat.toLowerCase() != newCat.toLowerCase() && newCat.isNotEmpty) {
-          changes.add('category "$oldCat" → "$newCat"');
-        }
-
-        if (changes.isNotEmpty) {
-          diffMessage = '$actorName updated "${expense.description}": ${changes.join(', ')}';
-        } else {
-          diffMessage = '$actorName updated "${expense.description}"';
-        }
-      } else {
-        diffMessage = '$actorName updated "${expense.description}"';
+  /// Replaces the whole document (so removed members' old shares can't linger,
+  /// unlike v1's merge) while keeping identity fields from [previous].
+  Future<WriteOutcome> updateExpense({
+    required GroupModel group,
+    required GroupExpenseModel previous,
+    required GroupExpenseModel updated,
+    EncodedImage? newReceipt,
+    bool removeReceipt = false,
+  }) async {
+    final batch = _db.batch();
+    var receiptId = previous.receiptId;
+    if (newReceipt != null || removeReceipt) {
+      if (previous.receiptId != null) {
+        batch.delete(_receipts.collection(groupId: group.groupId).doc(previous.receiptId));
       }
-    } catch (_) {
-      diffMessage = '$actorName updated "${expense.description}"';
+      receiptId = newReceipt == null
+          ? null
+          : _receipts.stage(batch, newReceipt, groupId: group.groupId, expenseId: previous.expenseId);
     }
-
-    final batch = _firestore.batch();
-
-    final expenseDoc = _firestore
-        .collection('groups')
-        .doc(groupId)
-        .collection('expenses')
-        .doc(expense.expenseId);
-    batch.set(expenseDoc, expense.toMap(), SetOptions(merge: true));
-
-    if (!expense.isRecurringTemplate) {
-      final activityDoc = _firestore
-          .collection('groups')
-          .doc(groupId)
-          .collection('activity')
-          .doc();
-      batch.set(activityDoc, {
-        'type': 'expense_edited',
-        'actorUid': uid,
-        'expenseId': expense.expenseId,
-        'message': diffMessage,
-        'createdAt': FieldValue.serverTimestamp(),
-      });
+    final data = updated.toMap()
+      ..['receiptId'] = receiptId
+      ..['createdAt'] = Timestamp.fromDate(previous.createdAt)
+      ..['createdBy'] = previous.createdBy ?? _me
+      ..['isRecurringTemplate'] = previous.isRecurringTemplate
+      ..['generatedFromTemplateId'] = previous.generatedFromTemplateId
+      ..['lastGeneratedDate'] =
+          previous.lastGeneratedDate != null ? Timestamp.fromDate(previous.lastGeneratedDate!) : null
+      ..['isCancelled'] = previous.isCancelled;
+    if (previous.isRecurringTemplate) data['recurrenceVersion'] = 2;
+    if (newReceipt == null && !removeReceipt && previous.legacyReceipt != null) {
+      data['receiptUrl'] = previous.legacyReceipt;
     }
+    batch.set(_expenses(group.groupId).doc(previous.expenseId), data);
 
-    await batch.commit();
+    final changes = describeChanges(previous, updated);
+    if (!previous.isRecurringTemplate) {
+      _activity(
+        batch,
+        group.groupId,
+        GroupActivityModel.expenseEdited,
+        changes.isEmpty
+            ? '$_myName updated "${updated.description}"'
+            : '$_myName updated "${updated.description}": ${changes.join(', ')}',
+        expenseId: previous.expenseId,
+      );
+    }
+    final outcome = await commitWithTimeout(batch.commit());
+    if (!previous.isRecurringTemplate) {
+      runInBackground(() async {
+        await _mirrors.syncOne(group.groupId, group.name, updated);
+        await _notify.send(
+          recipients: {...group.members.where((m) => previous.involves(m) || updated.involves(m))},
+          type: NotificationModel.expenseEdited,
+          message: '$_myName edited "${updated.description}" in ${group.name}',
+          groupId: group.groupId,
+          groupName: group.name,
+          expenseId: previous.expenseId,
+          amount: updated.amount,
+        );
+      }, label: 'expense edited side effects');
+    }
+    return outcome;
   }
 
-  Future<void> softDeleteGroupExpense(String groupId, String expenseId) async {
-    final uid = _currentUid;
-    if (uid == null) throw Exception('User not authenticated');
+  static List<String> describeChanges(GroupExpenseModel a, GroupExpenseModel b) {
+    final out = <String>[];
+    if (!Money.equals(a.amount, b.amount)) {
+      out.add('amount ${Money.format(a.amount)} → ${Money.format(b.amount)}');
+    }
+    if (a.description.trim() != b.description.trim()) out.add('renamed from "${a.description.trim()}"');
+    if (a.category.trim().toLowerCase() != b.category.trim().toLowerCase()) {
+      out.add('category ${a.category} → ${b.category}');
+    }
+    if (a.payerUid != b.payerUid) out.add('payer changed');
+    final aShares = a.shareByUid.map((k, v) => MapEntry(k, Money.toPaise(v)));
+    final bShares = b.shareByUid.map((k, v) => MapEntry(k, Money.toPaise(v)));
+    final sameSplit = aShares.length == bShares.length &&
+        aShares.entries.every((e) => bShares[e.key] == e.value);
+    if (!sameSplit) out.add('split changed');
+    if (a.date.year != b.date.year || a.date.month != b.date.month || a.date.day != b.date.day) {
+      out.add('date changed');
+    }
+    return out;
+  }
 
-    final actorName = await _getActorName(uid);
-    
-    String description = 'an expense';
-    try {
-      final expDoc = await _firestore
-          .collection('groups')
-          .doc(groupId)
-          .collection('expenses')
-          .doc(expenseId)
-          .get();
-      description = expDoc.data()?['description'] ?? 'an expense';
-    } catch (_) {}
-
-    final batch = _firestore.batch();
-    
-    final expenseDoc = _firestore
-        .collection('groups')
-        .doc(groupId)
-        .collection('expenses')
-        .doc(expenseId);
-    batch.update(expenseDoc, {'isDeleted': true});
-
-    final activityDoc = _firestore
-        .collection('groups')
-        .doc(groupId)
-        .collection('activity')
-        .doc();
-    batch.set(activityDoc, {
-      'type': 'expense_deleted',
-      'actorUid': uid,
-      'expenseId': expenseId,
-      'message': '$actorName deleted "$description"',
-      'createdAt': FieldValue.serverTimestamp(),
+  Future<WriteOutcome> deleteExpense({
+    required GroupModel group,
+    required GroupExpenseModel expense,
+  }) async {
+    final batch = _db.batch();
+    batch.update(_expenses(group.groupId).doc(expense.expenseId), {
+      'isDeleted': true,
+      'updatedAt': FieldValue.serverTimestamp(),
     });
-
-    await batch.commit();
+    final label = expense.isPayment ? 'a payment of ${Money.format(expense.amount)}' : '"${expense.description}"';
+    _activity(batch, group.groupId, GroupActivityModel.expenseDeleted, '$_myName deleted $label',
+        expenseId: expense.expenseId);
+    final outcome = await commitWithTimeout(batch.commit());
+    runInBackground(() async {
+      final deleted = GroupExpenseModel.fromMap({...expense.toMap(), 'isDeleted': true}, expense.expenseId);
+      await _mirrors.syncOne(group.groupId, group.name, deleted);
+      await _notify.send(
+        recipients: group.members.where(expense.involves),
+        type: NotificationModel.expenseDeleted,
+        message: '$_myName deleted $label in ${group.name}',
+        groupId: group.groupId,
+        groupName: group.name,
+        expenseId: expense.expenseId,
+        amount: expense.amount,
+      );
+    }, label: 'expense deleted side effects');
+    return outcome;
   }
 
-  Future<void> cancelGroupRecurringExpense(String groupId, String expenseId) async {
-    final uid = _currentUid;
-    if (uid == null) throw Exception('User not authenticated');
+  // ── Payments ──────────────────────────────────────────────────────────────
 
-    final actorName = await _getActorName(uid);
-    String description = 'a recurring expense';
-    try {
-      final expDoc = await _firestore
-          .collection('groups')
-          .doc(groupId)
-          .collection('expenses')
-          .doc(expenseId)
-          .get();
-      description = expDoc.data()?['description'] ?? 'a recurring expense';
-    } catch (_) {}
+  /// Records [fromUid] paying [toUid] in one atomic batch. When this brings the
+  /// pair's direct balance to zero, every unsettled split *between exactly
+  /// these two people* is marked settled in the same batch (spec §12).
+  Future<WriteOutcome> recordPayment({
+    required GroupModel group,
+    required String fromUid,
+    required String toUid,
+    required double amount,
+    required List<GroupExpenseModel> currentExpenses,
+    required String fromName,
+    required String toName,
+  }) async {
+    final paise = Money.toPaise(amount);
+    if (paise <= 0) throw const AppException('Enter an amount more than ₹0.');
+    if (fromUid == toUid) throw const AppException('Pick two different people.');
 
-    final batch = _firestore.batch();
-    batch.update(
-      _firestore.collection('groups').doc(groupId).collection('expenses').doc(expenseId),
-      {'isCancelled': true},
-    );
-
-    final activityDoc = _firestore
-        .collection('groups')
-        .doc(groupId)
-        .collection('activity')
-        .doc();
-    batch.set(activityDoc, {
-      'type': 'expense_edited',
-      'actorUid': uid,
-      'expenseId': expenseId,
-      'message': '$actorName cancelled recurring template "$description"',
-      'createdAt': FieldValue.serverTimestamp(),
-    });
-
-    await batch.commit();
-  }
-
-  Future<void> recordPayment(String groupId, String fromUid, String toUid, double amount) async {
-    final uid = _currentUid;
-    if (uid == null) throw Exception('User not authenticated');
-
-    final expenseId = const Uuid().v4();
-    // Settlement payment: both entries settled:true — this is a resolution, not a new debt.
-    final expense = GroupExpenseModel(
-      expenseId: expenseId,
+    final ref = _expenses(group.groupId).doc();
+    final now = DateTime.now();
+    final payment = GroupExpenseModel(
+      expenseId: ref.id,
+      type: GroupExpenseModel.typePayment,
       payerUid: fromUid,
-      amount: amount,
-      category: 'Settlement',
-      description: 'Settlement Payment',
+      amount: Money.fromPaise(paise),
+      category: 'Payment',
+      description: 'Payment',
       splitType: 'custom',
-      splits: {
-        fromUid: SplitEntry(amountOwed: 0.0, settled: true),
-        toUid: SplitEntry(amountOwed: amount, settled: true),
-      },
-      createdAt: DateTime.now(),
+      splits: {toUid: SplitEntry(amountOwed: Money.fromPaise(paise), settled: true)},
+      date: now,
+      createdAt: now,
+      createdBy: _me,
     );
 
-    final fromName = await _getActorName(fromUid);
-    final toName = await _getActorName(toUid);
+    final batch = _db.batch();
+    batch.set(ref, payment.toMap());
 
-    final batch = _firestore.batch();
-    
-    final expenseDoc = _firestore
-        .collection('groups')
-        .doc(groupId)
-        .collection('expenses')
-        .doc(expenseId);
-    batch.set(expenseDoc, expense.toMap());
+    final after = [...currentExpenses, payment];
+    final pairNet = Settlement.pairwiseFor(fromUid, after)[toUid] ?? 0;
+    if (Money.isZero(pairNet)) {
+      for (final e in currentExpenses) {
+        if (e.isPayment || e.isDeleted || e.isRecurringTemplate) continue;
+        String? debtor;
+        if (e.payerUid == toUid && e.splits[fromUid] != null) debtor = fromUid;
+        if (e.payerUid == fromUid && e.splits[toUid] != null) debtor = toUid;
+        if (debtor == null) continue;
+        final entry = e.splits[debtor]!;
+        if (entry.settled || entry.amountOwed <= 0) continue;
+        batch.update(_expenses(group.groupId).doc(e.expenseId), {
+          'splits.$debtor': {'amountOwed': entry.amountOwed, 'settled': true},
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+    }
 
-    final activityDoc = _firestore
-        .collection('groups')
-        .doc(groupId)
-        .collection('activity')
-        .doc();
-    batch.set(activityDoc, {
-      'type': 'settled_up',
-      'actorUid': uid,
-      'expenseId': expenseId,
-      'message': '$fromName paid $toName ₹${amount.toStringAsFixed(2)}',
-      'createdAt': FieldValue.serverTimestamp(),
-    });
+    _activity(batch, group.groupId, GroupActivityModel.settledUp,
+        '$fromName paid $toName ${Money.format(amount)}',
+        expenseId: ref.id);
+    final outcome = await commitWithTimeout(batch.commit());
 
-    await batch.commit();
+    runInBackground(() async {
+      await _mirrors.scanAll();
+      final other = _me == fromUid ? toUid : fromUid;
+      await _notify.send(
+        recipients: [other],
+        type: NotificationModel.paymentRecorded,
+        message: _me == fromUid
+            ? '$_myName paid you ${Money.format(amount)} in ${group.name}'
+            : '$_myName marked your ${Money.format(amount)} payment as received in ${group.name}',
+        groupId: group.groupId,
+        groupName: group.name,
+        expenseId: ref.id,
+        amount: amount,
+      );
+    }, label: 'payment side effects');
+    return outcome;
   }
 
-  /// Marks all unsettled pairwise split entries between [payerUid] and [debtorUid]
-  /// as settled:true in a single batch write.
-  ///
-  /// This covers:
-  ///   - Entries where debtorUid owes payerUid (debtor's split entry in payerUid's expenses)
-  ///   - Entries where payerUid owes debtorUid (reverse: A owes B something from B's expense)
-  ///
-  /// Called immediately after a pairwise settlement is confirmed by Record Payment.
-  Future<void> markSplitsSettled(String groupId, String payerUid, String debtorUid) async {
-    // Fetch all non-deleted, non-template expenses in this group
-    final snapshot = await _firestore
-        .collection('groups')
-        .doc(groupId)
-        .collection('expenses')
-        .where('isDeleted', isEqualTo: false)
-        .get();
+  // ── Recurring templates ───────────────────────────────────────────────────
 
-    final batch = _firestore.batch();
-    bool hasPendingWrites = false;
+  Future<void> setTemplatePaused(String groupId, String templateId, {required bool paused}) async {
+    await commitWithTimeout(_expenses(groupId).doc(templateId).update({
+      'isCancelled': paused,
+      if (!paused) 'lastGeneratedDate': Timestamp.fromDate(DateTime.now()),
+      'updatedAt': FieldValue.serverTimestamp(),
+    }));
+  }
 
-    for (final doc in snapshot.docs) {
-      final data = doc.data();
-      // Skip settlement records and templates
-      if (data['isRecurringTemplate'] == true) continue;
-      final cat = (data['category'] ?? '').toString().toLowerCase();
-      if (cat == 'settlement') continue;
-
-      final rawSplits = data['splits'] as Map<String, dynamic>? ?? {};
-      final Map<String, dynamic> updatedSplits = Map.from(rawSplits);
-      bool changed = false;
-
-      // Case 1: debtorUid has an unsettled entry in this expense (they owe payerUid)
-      if (updatedSplits.containsKey(debtorUid)) {
-        final entry = SplitEntry.fromMap(updatedSplits[debtorUid]);
-        if (!entry.settled && entry.amountOwed > 0) {
-          updatedSplits[debtorUid] = {'amountOwed': entry.amountOwed, 'settled': true};
-          changed = true;
-        }
-      }
-
-      // Case 2: payerUid has an unsettled entry in an expense paid by debtorUid
-      // (reverse direction: payerUid owes debtorUid)
-      final expPayer = (data['payerUid'] ?? '').toString();
-      if (expPayer == debtorUid && updatedSplits.containsKey(payerUid)) {
-        final entry = SplitEntry.fromMap(updatedSplits[payerUid]);
-        if (!entry.settled && entry.amountOwed > 0) {
-          updatedSplits[payerUid] = {'amountOwed': entry.amountOwed, 'settled': true};
-          changed = true;
-        }
-      }
-
-      if (changed) {
-        batch.update(doc.reference, {'splits': updatedSplits});
-        hasPendingWrites = true;
-      }
-    }
-
-    if (hasPendingWrites) {
-      await batch.commit();
-    }
+  Future<void> deleteTemplate(String groupId, String templateId) async {
+    await commitWithTimeout(_expenses(groupId).doc(templateId).update({
+      'isDeleted': true,
+      'isCancelled': true,
+      'updatedAt': FieldValue.serverTimestamp(),
+    }));
   }
 }

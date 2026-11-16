@@ -1,1 +1,24 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"splitmate-6b600","appId":"1:963239790335:android:3c02e893331e3e79dcaeca","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"splitmate-6b600","configurations":{"android":"1:963239790335:android:3c02e893331e3e79dcaeca"}}}}}}
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "splitmate-6b600",
+          "appId": "1:963239790335:android:3c02e893331e3e79dcaeca",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "splitmate-6b600",
+          "configurations": {
+            "android": "1:963239790335:android:3c02e893331e3e79dcaeca"
+          }
+        }
+      }
+    }
+  },
+  "firestore": {
+    "rules": "firestore.rules"
+  }
+}

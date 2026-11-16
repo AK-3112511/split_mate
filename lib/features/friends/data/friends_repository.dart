@@ -1,220 +1,172 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/utils/app_exception.dart';
 import '../../../core/utils/firestore_helper.dart';
+import '../../../core/utils/write_helper.dart';
 import '../../auth/data/auth_repository.dart';
+import '../../auth/domain/user_profile.dart';
+import '../../notifications/data/notifications_repository.dart';
+import '../../notifications/domain/notification_model.dart';
 import '../domain/friend_model.dart';
+
+/// Every friendship edge of the current user (accepted + pending both ways).
+final friendsStreamProvider = StreamProvider<List<FriendModel>>((ref) {
+  final uid = ref.watch(currentUidProvider);
+  if (uid == null) return Stream.value(const []);
+  return ref.watch(friendsRepositoryProvider).stream(uid);
+});
+
+final acceptedFriendsProvider = Provider<List<FriendModel>>((ref) {
+  return (ref.watch(friendsStreamProvider).valueOrNull ?? const [])
+      .where((f) => f.isAccepted)
+      .toList();
+});
+
+final incomingFriendRequestCountProvider = Provider<int>((ref) {
+  final me = ref.watch(currentUidProvider);
+  if (me == null) return 0;
+  return (ref.watch(friendsStreamProvider).valueOrNull ?? const [])
+      .where((f) => f.isIncomingFor(me))
+      .length;
+});
+
+/// How a person is shown everywhere: "You", my nickname for them, or their name.
+final memberNameProvider = Provider.autoDispose.family<String, String>((ref, uid) {
+  final me = ref.watch(currentUidProvider);
+  if (uid == me) return 'You';
+  final friends = ref.watch(friendsStreamProvider).valueOrNull ?? const [];
+  for (final f in friends) {
+    if (f.uid == uid && f.nickname != null) return f.nickname!;
+  }
+  final profile = ref.watch(userProfileProvider(uid)).valueOrNull;
+  return profile?.displayName ?? 'Member';
+});
+
+/// Like [memberNameProvider] but never "You" (for third-person messages).
+final realNameProvider = Provider.autoDispose.family<String, String>((ref, uid) {
+  final friends = ref.watch(friendsStreamProvider).valueOrNull ?? const [];
+  for (final f in friends) {
+    if (f.uid == uid && f.nickname != null) return f.nickname!;
+  }
+  return ref.watch(userProfileProvider(uid)).valueOrNull?.displayName ?? 'Member';
+});
+
+enum FriendRequestResult { sent, accepted }
 
 final friendsRepositoryProvider = Provider<FriendsRepository>((ref) {
   return FriendsRepository(
     ref.watch(firestoreProvider),
-    ref.watch(firebaseAuthProvider),
+    ref.watch(currentUidProvider),
+    ref.watch(notificationsRepositoryProvider),
   );
-});
-
-final friendsStreamProvider = StreamProvider<List<FriendModel>>((ref) {
-  final authState = ref.watch(authStateProvider);
-  return authState.when(
-    data: (user) {
-      if (user == null) return const Stream.empty();
-      final repository = ref.watch(friendsRepositoryProvider);
-      return repository.streamFriends(user.uid);
-    },
-    loading: () => const Stream.empty(),
-    error: (err, stack) => const Stream.empty(),
-  );
-});
-
-final friendDetailsProvider = StreamProvider.family<Map<String, dynamic>?, String>((ref, uid) {
-  return retryOnPermissionDenied(() => ref.watch(firestoreProvider)
-      .collection('users')
-      .doc(uid)
-      .snapshots()
-      .map((snap) => snap.data()));
-});
-
-final resolvedMemberNameProvider = Provider.family<String, String>((ref, uid) {
-  final currentUid = ref.watch(firebaseAuthProvider).currentUser?.uid;
-
-  // 1. Check custom nickname from friends stream
-  final friendsList = ref.watch(friendsStreamProvider).valueOrNull ?? [];
-  for (final f in friendsList) {
-    if (f.uid == uid && f.nickname != null && f.nickname!.isNotEmpty) {
-      return f.nickname!;
-    }
-  }
-
-  // 2. If current logged-in user and no nickname override exists
-  if (uid == currentUid) return 'You';
-
-  // 3. Fall back to user's registered displayName
-  final details = ref.watch(friendDetailsProvider(uid)).valueOrNull;
-  return details?['displayName'] ?? 'Member';
 });
 
 class FriendsRepository {
-  final FirebaseFirestore _firestore;
-  final FirebaseAuth _auth;
+  final FirebaseFirestore _db;
+  final String? _uid;
+  final NotificationsRepository _notify;
 
-  FriendsRepository(this._firestore, this._auth);
+  FriendsRepository(this._db, this._uid, this._notify);
 
-  String? get _currentUid => _auth.currentUser?.uid;
+  String get _me {
+    final uid = _uid;
+    if (uid == null) throw const AppException('Please sign in again.');
+    return uid;
+  }
 
-  Stream<List<FriendModel>> streamFriends(String uid) {
-    return retryOnPermissionDenied(() => _firestore
+  DocumentReference<Map<String, dynamic>> _edge(String owner, String other) =>
+      _db.collection('friends').doc(owner).collection('friendList').doc(other);
+
+  Stream<List<FriendModel>> stream(String uid) {
+    return retryOnPermissionDenied(() => _db
         .collection('friends')
         .doc(uid)
         .collection('friendList')
-        .orderBy('addedAt', descending: true)
         .snapshots()
-        .map((snapshot) {
-          return snapshot.docs.map((doc) => FriendModel.fromMap(doc.data(), doc.id)).toList();
+        .map((s) {
+          final list = s.docs.map((d) => FriendModel.fromMap(d.data(), d.id)).toList();
+          list.sort((a, b) => b.addedAt.compareTo(a.addedAt));
+          return list;
         }));
   }
 
-  Future<void> addFriendByCode(String code) async {
-    final myUid = _currentUid;
-    if (myUid == null) throw Exception('User not authenticated');
+  static String normalizeCode(String code) => code.trim().toUpperCase().replaceAll(' ', '');
 
-    final cleanCode = code.trim().toUpperCase();
-    if (cleanCode.length != 6) {
-      throw Exception('App code must be exactly 6 characters');
+  /// Looks a person up by their 6-character friend code.
+  Future<UserProfile> findByCode(String rawCode) async {
+    final code = normalizeCode(rawCode);
+    if (code.length != 6) throw const AppException('Friend codes are 6 characters.');
+    String? uid;
+    final reg = await _db.collection('app_codes').doc(code).get();
+    if (reg.exists) {
+      uid = reg.data()?['uid'] as String?;
+    } else {
+      // v1 users who haven't opened v2 yet aren't in the registry.
+      final q = await _db.collection('users').where('appCode', isEqualTo: code).limit(1).get();
+      if (q.docs.isNotEmpty) uid = q.docs.first.id;
+    }
+    if (uid == null) throw AppException('No one has the code $code. Double-check it?');
+    final profile = await _db.collection('users').doc(uid).get();
+    return UserProfile.fromMap(uid, profile.data());
+  }
+
+  /// Sends a request, or accepts instantly if they already asked you.
+  Future<FriendRequestResult> sendRequest(String rawCode) async {
+    final me = _me;
+    final target = await findByCode(rawCode);
+    if (target.uid == me) throw const AppException('That\'s your own code 🙂');
+
+    final existing = await _edge(me, target.uid).get();
+    if (existing.exists) {
+      final edge = FriendModel.fromMap(existing.data()!, existing.id);
+      if (edge.isAccepted) throw AppException('${target.displayName} is already your friend.');
+      if (edge.sentBy == me) throw AppException('Request already sent to ${target.displayName}.');
+      await accept(target.uid);
+      return FriendRequestResult.accepted;
     }
 
-    // 1. Query for user with matching appCode
-    final userQuery = await _firestore
-        .collection('users')
-        .where('appCode', isEqualTo: cleanCode)
-        .limit(1)
-        .get();
-
-    if (userQuery.docs.isEmpty) {
-      throw Exception('No user found with code $cleanCode');
-    }
-
-    final friendDoc = userQuery.docs.first;
-    final friendUid = friendDoc.id;
-
-    if (friendUid == myUid) {
-      throw Exception('You cannot add yourself as a friend');
-    }
-
-    // 2. Check if already in my friend list
-    final existingDoc = await _firestore
-        .collection('friends')
-        .doc(myUid)
-        .collection('friendList')
-        .doc(friendUid)
-        .get();
-
-    if (existingDoc.exists) {
-      final status = existingDoc.data()?['status'] ?? 'pending';
-      if (status == 'accepted') {
-        throw Exception('User is already your friend');
-      } else {
-        throw Exception('A friend request is already pending');
-      }
-    }
-
-    // 3. Batch write pending friend docs recursively
-    final batch = _firestore.batch();
     final now = DateTime.now();
-
-    final myFriendDocRef = _firestore
-        .collection('friends')
-        .doc(myUid)
-        .collection('friendList')
-        .doc(friendUid);
-
-    final friendFriendDocRef = _firestore
-        .collection('friends')
-        .doc(friendUid)
-        .collection('friendList')
-        .doc(myUid);
-
-    final requestModel = FriendModel(
-      uid: friendUid,
-      status: 'pending',
-      balance: 0.0,
-      addedAt: now,
-      sentBy: myUid,
-    );
-
-    final reciprocalModel = FriendModel(
-      uid: myUid,
-      status: 'pending',
-      balance: 0.0,
-      addedAt: now,
-      sentBy: myUid,
-    );
-
-    batch.set(myFriendDocRef, requestModel.toMap());
-    batch.set(friendFriendDocRef, reciprocalModel.toMap());
-
-    await batch.commit();
+    final batch = _db.batch();
+    batch.set(_edge(me, target.uid),
+        FriendModel(uid: target.uid, status: FriendModel.pending, addedAt: now, sentBy: me).toMap());
+    batch.set(_edge(target.uid, me),
+        FriendModel(uid: me, status: FriendModel.pending, addedAt: now, sentBy: me).toMap());
+    await commitWithTimeout(batch.commit());
+    runInBackground(() => _notify.send(
+          recipients: [target.uid],
+          type: NotificationModel.friendRequest,
+          message: '${_notify.senderName} sent you a friend request',
+        ), label: 'friend request notify');
+    return FriendRequestResult.sent;
   }
 
-  Future<void> acceptFriendRequest(String friendUid) async {
-    final myUid = _currentUid;
-    if (myUid == null) throw Exception('User not authenticated');
-
-    final batch = _firestore.batch();
-
-    final myFriendDocRef = _firestore
-        .collection('friends')
-        .doc(myUid)
-        .collection('friendList')
-        .doc(friendUid);
-
-    final friendFriendDocRef = _firestore
-        .collection('friends')
-        .doc(friendUid)
-        .collection('friendList')
-        .doc(myUid);
-
-    batch.update(myFriendDocRef, {'status': 'accepted'});
-    batch.update(friendFriendDocRef, {'status': 'accepted'});
-
-    await batch.commit();
+  Future<void> accept(String otherUid) async {
+    final me = _me;
+    final batch = _db.batch();
+    batch.update(_edge(me, otherUid), {'status': FriendModel.accepted});
+    batch.update(_edge(otherUid, me), {'status': FriendModel.accepted});
+    await commitWithTimeout(batch.commit());
+    runInBackground(() => _notify.send(
+          recipients: [otherUid],
+          type: NotificationModel.friendAccepted,
+          message: '${_notify.senderName} accepted your friend request',
+        ), label: 'friend accepted notify');
   }
 
-  Future<void> declineFriendRequest(String friendUid) async {
-    final myUid = _currentUid;
-    if (myUid == null) throw Exception('User not authenticated');
-
-    final batch = _firestore.batch();
-
-    final myFriendDocRef = _firestore
-        .collection('friends')
-        .doc(myUid)
-        .collection('friendList')
-        .doc(friendUid);
-
-    final friendFriendDocRef = _firestore
-        .collection('friends')
-        .doc(friendUid)
-        .collection('friendList')
-        .doc(myUid);
-
-    batch.delete(myFriendDocRef);
-    batch.delete(friendFriendDocRef);
-
-    await batch.commit();
+  /// Decline an incoming request, cancel an outgoing one, or unfriend.
+  Future<void> remove(String otherUid) async {
+    final me = _me;
+    final batch = _db.batch();
+    batch.delete(_edge(me, otherUid));
+    batch.delete(_edge(otherUid, me));
+    await commitWithTimeout(batch.commit());
   }
 
-  Future<void> updateFriendNickname(String friendUid, String nickname) async {
-    final myUid = _currentUid;
-    if (myUid == null) throw Exception('User not authenticated');
-
-    final cleanNickname = nickname.trim();
-    final docRef = _firestore
-        .collection('friends')
-        .doc(myUid)
-        .collection('friendList')
-        .doc(friendUid);
-
-    await docRef.update({
-      'nickname': cleanNickname.isEmpty ? FieldValue.delete() : cleanNickname,
-    });
+  Future<void> setNickname(String otherUid, String? nickname) async {
+    final clean = nickname?.trim() ?? '';
+    if (clean.length > 24) throw const AppException('Keep nicknames under 24 characters.');
+    await commitWithTimeout(_edge(_me, otherUid).update({
+      'nickname': clean.isEmpty ? FieldValue.delete() : clean,
+    }));
   }
 }

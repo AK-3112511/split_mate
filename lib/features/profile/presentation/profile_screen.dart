@@ -1,510 +1,314 @@
-import 'dart:io';
-import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cached_network_image/cached_network_image.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
-import '../../../core/theme/app_theme.dart';
+import 'package:material_ui/material_ui.dart';
+import '../../../core/theme/aurora_colors.dart';
+import '../../../core/theme/theme_mode_provider.dart';
+import '../../../core/theme/tokens.dart';
+import '../../../core/utils/dates.dart';
+import '../../../core/utils/image_codec.dart';
+import '../../../shared_widgets/avatars.dart';
+import '../../../shared_widgets/bits.dart';
+import '../../../shared_widgets/buttons.dart';
+import '../../../shared_widgets/cards.dart';
+import '../../../shared_widgets/feedback.dart';
+import '../../../shared_widgets/inputs.dart';
+import '../../../shared_widgets/motion.dart';
 import '../../auth/data/auth_repository.dart';
-import '../../groups/data/groups_repository.dart';
 import '../../friends/data/friends_repository.dart';
-import '../../personal_expenses/data/expense_repository.dart';
+import '../../groups/data/groups_repository.dart';
 import '../../notifications/data/notifications_repository.dart';
+import '../../personal_expenses/data/expense_repository.dart';
+import 'export_sheet.dart';
 
-class ProfileScreen extends ConsumerStatefulWidget {
+class ProfileScreen extends ConsumerWidget {
   const ProfileScreen({super.key});
 
   @override
-  ConsumerState<ProfileScreen> createState() => _ProfileScreenState();
-}
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.aurora;
+    final profile = ref.watch(currentUserProfileProvider).valueOrNull;
+    final user = ref.watch(authStateProvider).valueOrNull;
+    final groups = ref.watch(groupsStreamProvider).valueOrNull?.length ?? 0;
+    final friends = ref.watch(acceptedFriendsProvider).length;
+    final now = DateTime.now();
+    final thisMonth = (ref.watch(personalExpensesProvider).valueOrNull ?? const [])
+        .where((e) => Dates.isSameMonth(e.date, now))
+        .length;
+    final unread = ref.watch(unreadNotificationCountProvider);
+    final isPasswordUser = ref.read(authRepositoryProvider).isPasswordUser;
 
-class _ProfileScreenState extends ConsumerState<ProfileScreen> {
-  File? _localImageFile;
-
-  Future<void> _pickImage(ImageSource source) async {
-    try {
-      final picker = ImagePicker();
-      final picked = await picker.pickImage(
-        source: source,
-        maxWidth: 512,
-        maxHeight: 512,
-        imageQuality: 85,
-      );
-      if (picked == null) return;
-
-      setState(() {
-        _localImageFile = File(picked.path);
-      });
-
-      final user = ref.read(firebaseAuthProvider).currentUser;
-      if (user != null) {
-        final photoPath = picked.path;
-        await user.updatePhotoURL(photoPath);
-        await FirebaseFirestore.instance.collection('users').doc(user.uid).set({
-          'photoUrl': photoPath,
-          'updatedAt': FieldValue.serverTimestamp(),
-        }, SetOptions(merge: true));
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to update photo: $e'),
-            backgroundColor: AppTheme.semanticNegative,
+    Widget stat(String label, int v) => Expanded(
+          child: Column(
+            children: [
+              Text('$v', style: context.text.titleLarge),
+              Text(label, style: context.text.labelMedium),
+            ],
           ),
         );
-      }
-    }
-  }
 
-  void _showImageSourceSheet() {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: AppTheme.surfaceBase,
-      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
-      builder: (context) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    const Icon(Icons.photo_camera_outlined, color: AppTheme.accent, size: 20),
-                    const SizedBox(width: 10),
-                    Text(
-                      'UPDATE PROFILE PHOTO',
-                      style: AppTheme.monoStyle.copyWith(
-                        fontSize: 14,
-                        fontWeight: FontWeight.bold,
-                        color: AppTheme.accent,
-                        letterSpacing: 1.0,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-                Divider(color: AppTheme.textSecondary.withValues(alpha: 0.15), height: 1),
-                const SizedBox(height: 12),
-                ListTile(
-                  leading: const Icon(Icons.camera_alt_outlined, color: AppTheme.textPrimary),
-                  title: const Text('Take Photo', style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _pickImage(ImageSource.camera);
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.photo_library_outlined, color: AppTheme.textPrimary),
-                  title: const Text('Choose from Gallery', style: TextStyle(color: AppTheme.textPrimary, fontWeight: FontWeight.bold)),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _pickImage(ImageSource.gallery);
-                  },
-                ),
-              ],
-            ),
-          ),
+    Widget tile(IconData icon, String title, {String? subtitle, VoidCallback? onTap, Widget? trailing, Color? color}) =>
+        ListTile(
+          leading: IconBadge(icon, size: 40, color: color),
+          title: Text(title),
+          subtitle: subtitle == null ? null : Text(subtitle),
+          trailing: trailing ?? Icon(Icons.chevron_right_rounded, color: c.textMuted),
+          onTap: onTap,
         );
-      },
-    );
-  }
 
-  Widget _buildStandardPersonIcon(String initials) {
-    return Container(
-      width: 88,
-      height: 88,
-      color: AppTheme.surfaceCard,
-      child: Center(
-        child: Icon(
-          Icons.person,
-          size: 48,
-          color: AppTheme.accent,
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final user = ref.watch(firebaseAuthProvider).currentUser;
-    final displayName = user?.displayName ?? 'SplitMate User';
-    final email = user?.email ?? 'user@splitmate.com';
-
-    // Watch real dynamic stats
-    final groupsAsync = ref.watch(groupsStreamProvider);
-    final friendsAsync = ref.watch(friendsStreamProvider);
-    final expensesAsync = ref.watch(personalExpensesProvider);
-    final unreadCount = ref.watch(unreadNotificationCountProvider);
-
-    final groupsCount = groupsAsync.value?.length ?? 0;
-    final friendsCount = friendsAsync.value?.length ?? 0;
-    final trackedCount = expensesAsync.value?.where((e) => !e.isRecurringTemplate).length ?? 0;
-    
-    // Generate initials for fallback avatar
-    final initials = displayName.isNotEmpty
-        ? displayName.trim().split(' ').map((e) => e[0]).take(2).join().toUpperCase()
-        : 'SM';
-
-    final photoUrl = user?.photoURL;
-    Widget avatarWidget;
-    if (_localImageFile != null) {
-      avatarWidget = Image.file(_localImageFile!, fit: BoxFit.cover, width: 88, height: 88);
-    } else if (photoUrl != null && photoUrl.isNotEmpty && (photoUrl.startsWith('http://') || photoUrl.startsWith('https://'))) {
-      avatarWidget = CachedNetworkImage(
-        imageUrl: photoUrl,
-        fit: BoxFit.cover,
-        width: 88,
-        height: 88,
-        errorWidget: (context, url, error) => _buildStandardPersonIcon(initials),
-      );
-    } else if (photoUrl != null && photoUrl.isNotEmpty && File(photoUrl).existsSync()) {
-      avatarWidget = Image.file(File(photoUrl), fit: BoxFit.cover, width: 88, height: 88);
-    } else {
-      avatarWidget = _buildStandardPersonIcon(initials);
-    }
+    Widget section(String title, List<Widget> children, int index) => Padding(
+          padding: const EdgeInsets.fromLTRB(Space.gutter, Space.lg, Space.gutter, 0),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.only(left: Space.xxs, bottom: Space.xs),
+                child: Text(title.toUpperCase(),
+                    style: context.text.titleSmall?.copyWith(letterSpacing: 1.2, fontWeight: FontWeight.w800)),
+              ),
+              AppCard(padding: const EdgeInsets.symmetric(vertical: Space.xxs), child: Column(children: children)),
+            ],
+          ).entrance(context, index: index),
+        );
 
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: AppTheme.surfaceBase,
-        elevation: 0,
-        leading: Padding(
-          padding: const EdgeInsets.only(left: 16.0),
-          child: Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              border: Border.all(color: AppTheme.accent.withValues(alpha: 0.3)),
-              color: AppTheme.surfaceCard,
-            ),
-            child: Image.asset(
-              'assets/logo.png',
-              fit: BoxFit.contain,
-            ),
-          ),
-        ),
-        title: Text(
-          'SplitMate',
-          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                color: AppTheme.accent,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 1.5,
+      body: AuroraBackground(
+        child: SafeArea(
+          bottom: false,
+          child: ListView(
+            physics: const BouncingScrollPhysics(),
+            padding: const EdgeInsets.only(bottom: 140),
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(Space.gutter, Space.md, Space.gutter, 0),
+                child: Text('Profile', style: context.text.headlineLarge),
               ),
-        ),
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1.0),
-          child: Divider(
-            color: AppTheme.textSecondary.withValues(alpha: 0.1),
-            height: 1.0,
-            thickness: 1.0,
-          ),
-        ),
-      ),
-      body: SafeArea(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(24.0),
-            child: Column(
-              children: [
-                const SizedBox(height: 8),
-                // Profile Photo & Edit Badge
-                Center(
+              const SizedBox(height: Space.lg),
+              Center(
+                child: GestureDetector(
+                  onTap: () => _changePhoto(context, ref, hasPhoto: profile?.photoData != null),
                   child: Stack(
                     children: [
                       Container(
                         padding: const EdgeInsets.all(4),
                         decoration: BoxDecoration(
+                          color: c.cta,
                           shape: BoxShape.circle,
-                          border: Border.all(color: AppTheme.accent, width: 1.5),
+                          border: c.inkBorder,
+                          boxShadow: c.hardShadow(),
                         ),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(48),
-                          child: avatarWidget,
+                        child: PersonAvatar(
+                          seed: user?.uid ?? '',
+                          name: profile?.displayName ?? user?.displayName,
+                          photo: profile?.avatar,
+                          size: 96,
+                          ring: true,
                         ),
                       ),
-                      // Floating Edit Badge
                       Positioned(
+                        right: 0,
                         bottom: 0,
-                        right: 4,
-                        child: InkWell(
-                          onTap: _showImageSourceSheet,
-                          child: Container(
-                            padding: const EdgeInsets.all(8),
-                            decoration: const BoxDecoration(
-                              color: AppTheme.accent,
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.edit_outlined,
-                              color: Colors.black,
-                              size: 14,
-                            ),
-                          ),
+                        child: Container(
+                          padding: const EdgeInsets.all(6),
+                          decoration: BoxDecoration(color: Palette.violet, shape: BoxShape.circle, border: c.thinBorder),
+                          child: Icon(Icons.photo_camera_rounded, size: 16, color: c.onPop),
                         ),
                       ),
                     ],
                   ),
                 ),
-                const SizedBox(height: 16),
-                
-                // User Details
-                Text(
-                  displayName,
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: -0.5,
+              ).entrance(context),
+              const SizedBox(height: Space.sm),
+              Center(child: Text(profile?.displayName ?? user?.displayName ?? '', style: context.text.titleLarge)),
+              Center(child: Text(user?.email ?? '', style: context.text.bodySmall)),
+              const SizedBox(height: Space.lg),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: Space.gutter),
+                child: AppCard(
+                  child: Row(children: [
+                    stat('Groups', groups),
+                    stat('Friends', friends),
+                    stat('This month', thisMonth),
+                  ]),
+                ),
+              ),
+              section('Account', [
+                tile(Icons.badge_rounded, 'Personal info', subtitle: 'Name, friend code, UPI ID', onTap: () => context.push('/personal-info')),
+                tile(Icons.notifications_rounded, 'Notifications',
+                    onTap: () => context.push('/notifications'),
+                    trailing: unread > 0 ? Badge(label: Text('$unread')) : null),
+                if (isPasswordUser)
+                  tile(Icons.lock_reset_rounded, 'Change password', onTap: () => _changePassword(context, ref)),
+              ], 1),
+              section('Money', [
+                tile(Icons.category_rounded, 'Categories & budgets', onTap: () => context.push('/categories')),
+                tile(Icons.autorenew_rounded, 'Recurring expenses', onTap: () => context.push('/recurring')),
+                tile(Icons.receipt_long_rounded, 'Receipts', onTap: () => context.push('/receipts')),
+                tile(Icons.auto_awesome_rounded, 'Monthly recap',
+                    subtitle: 'Your ${Dates.monthName(DateTime(now.year, now.month - 1))} in review',
+                    onTap: () => context.push('/recap')),
+                tile(Icons.ios_share_rounded, 'Export my data', subtitle: 'CSV or PDF', onTap: () => showExportSheet(context)),
+              ], 2),
+              section('Appearance', [
+                Padding(
+                  padding: const EdgeInsets.all(Space.md),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(children: [
+                        const IconBadge(Icons.palette_rounded, size: 40),
+                        const SizedBox(width: Space.md),
+                        Text('Theme', style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w700)),
+                      ]),
+                      const SizedBox(height: Space.sm),
+                      SegmentedButton<ThemeMode>(
+                        showSelectedIcon: false,
+                        segments: const [
+                          ButtonSegment(value: ThemeMode.system, label: Text('Auto'), icon: Icon(Icons.brightness_auto_rounded, size: 18)),
+                          ButtonSegment(value: ThemeMode.light, label: Text('Light'), icon: Icon(Icons.light_mode_rounded, size: 18)),
+                          ButtonSegment(value: ThemeMode.dark, label: Text('Dark'), icon: Icon(Icons.dark_mode_rounded, size: 18)),
+                        ],
+                        selected: {ref.watch(themeModeProvider)},
+                        onSelectionChanged: (s) => ref.read(themeModeProvider.notifier).set(s.first),
                       ),
-                  textAlign: TextAlign.center,
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  email,
-                  style: AppTheme.monoSecondary.copyWith(fontSize: 12),
-                  textAlign: TextAlign.center,
+              ], 3),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(Space.gutter, Space.xl, Space.gutter, 0),
+                child: SecondaryButton(
+                  label: 'Sign out',
+                  icon: Icons.logout_rounded,
+                  color: c.negative,
+                  onPressed: () async {
+                    final ok = await confirmAction(
+                      context,
+                      title: 'Sign out?',
+                      message: 'Your data stays safe in your account.',
+                      confirmLabel: 'Sign out',
+                      icon: Icons.logout_rounded,
+                    );
+                    if (!ok) return;
+                    try {
+                      await ref.read(authRepositoryProvider).signOut();
+                    } catch (e) {
+                      Toast.error(e);
+                    }
+                  },
                 ),
-                const SizedBox(height: 32),
-
-                // Stats Row (Dynamic real-time numbers)
-                Row(
-                  children: [
-                    Expanded(
-                      child: _buildStatBox(label: 'GROUPS', value: '$groupsCount'),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildStatBox(label: 'FRIENDS', value: '$friendsCount'),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _buildStatBox(
-                        label: 'TRACKED',
-                        value: '$trackedCount',
-                        valueColor: AppTheme.accent,
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 32),
-
-                // Account Settings Card
-                _buildSectionCard(
-                  title: 'ACCOUNT SETTINGS',
-                  children: [
-                    _buildSettingRow(
-                      icon: Icons.person_outline,
-                      title: 'Personal Information',
-                      subtitle: 'Name, email, and primary currency',
-                      onTap: () => context.push('/profile/personal-info'),
-                    ),
-                    _buildSettingRow(
-                      icon: Icons.notifications_none_outlined,
-                      title: 'Notifications',
-                      subtitle: unreadCount > 0
-                          ? '$unreadCount unread alert${unreadCount > 1 ? 's' : ''}'
-                          : 'Manage transaction and group alerts',
-                      trailing: unreadCount > 0
-                          ? Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                              color: AppTheme.accent,
-                              child: Text(
-                                '$unreadCount NEW',
-                                style: AppTheme.monoStyle.copyWith(
-                                  color: Colors.black,
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            )
-                          : null,
-                      onTap: () => context.push('/notifications'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-
-                // Preferences Card
-                _buildSectionCard(
-                  title: 'PREFERENCES',
-                  children: [
-                    // Receipts Vault Row
-                    _buildSettingRow(
-                      icon: Icons.receipt_long_outlined,
-                      title: 'Receipts Vault',
-                      subtitle: 'View and search all uploaded bill receipts',
-                      onTap: () => context.push('/profile/receipts'),
-                    ),
-                    // Recurring Expenses Row
-                    _buildSettingRow(
-                      icon: Icons.repeat,
-                      title: 'Recurring Expenses',
-                      subtitle: 'Manage personal & group automated templates',
-                      onTap: () => context.push('/recurring-expenses'),
-                    ),
-                    // Manage Categories Row
-                    _buildSettingRow(
-                      icon: Icons.category_outlined,
-                      title: 'Manage Categories',
-                      subtitle: 'Add, edit, or delete expense tags',
-                      onTap: () => context.push('/categories'),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 24),
-
-                // Logout Card
-                _buildSectionCard(
-                  children: [
-                    _buildSettingRow(
-                      icon: Icons.logout_outlined,
-                      iconColor: AppTheme.semanticNegative,
-                      title: 'Logout',
-                      titleColor: AppTheme.semanticNegative,
-                      onTap: () async {
-                        await ref.read(authRepositoryProvider).signOut();
-                      },
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 32),
-
-                const SizedBox(height: 24),
-              ],
-            ),
+              ),
+              const SizedBox(height: Space.lg),
+              Center(child: Text('SplitMate 2.0 · Made with 💜', style: context.text.bodySmall)),
+            ],
           ),
         ),
       ),
     );
   }
 
-  Widget _buildStatBox({
-    required String label,
-    required String value,
-    Color valueColor = AppTheme.textPrimary,
-  }) {
-    return Container(
-      padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 12),
-      decoration: BoxDecoration(
-        color: AppTheme.surfaceCard.withValues(alpha: 0.2),
-        border: Border.all(color: AppTheme.textSecondary.withValues(alpha: 0.15)),
-      ),
-      child: Column(
+  Future<void> _changePhoto(BuildContext context, WidgetRef ref, {required bool hasPhoto}) {
+    Future<void> pick(BuildContext ctx, ImageSource source) async {
+      Navigator.of(ctx).pop();
+      try {
+        final img = await ImageCodec.pickAvatar(source);
+        if (img == null) return;
+        await ref.read(authRepositoryProvider).updatePhoto(img);
+        Toast.success('Photo updated');
+      } catch (e) {
+        Toast.error(e);
+      }
+    }
+
+    return showAppSheet<void>(
+      context,
+      builder: (ctx) => SheetBody(
+        title: 'Profile photo',
+        subtitle: 'Friends and group members see this.',
         children: [
-          Text(
-            label,
-            style: AppTheme.monoSecondary.copyWith(
-              fontSize: 10,
-              fontWeight: FontWeight.bold,
-              letterSpacing: 1.0,
-            ),
+          ListTile(
+            leading: const IconBadge(Icons.photo_camera_rounded, size: 40),
+            title: const Text('Take a photo'),
+            onTap: () => pick(ctx, ImageSource.camera),
           ),
-          const SizedBox(height: 6),
-          Text(
-            value,
-            style: AppTheme.monoStyle.copyWith(
-              fontSize: 22,
-              fontWeight: FontWeight.bold,
-              color: valueColor,
-            ),
+          ListTile(
+            leading: const IconBadge(Icons.photo_library_rounded, size: 40),
+            title: const Text('Choose from gallery'),
+            onTap: () => pick(ctx, ImageSource.gallery),
           ),
+          if (hasPhoto)
+            ListTile(
+              leading: IconBadge(Icons.delete_outline_rounded, size: 40, color: ctx.aurora.negative),
+              title: const Text('Remove photo'),
+              onTap: () async {
+                Navigator.of(ctx).pop();
+                try {
+                  await ref.read(authRepositoryProvider).updatePhoto(null);
+                } catch (e) {
+                  Toast.error(e);
+                }
+              },
+            ),
         ],
       ),
     );
   }
 
-  Widget _buildSectionCard({
-    String? title,
-    required List<Widget> children,
-  }) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        border: Border.all(color: AppTheme.textSecondary.withValues(alpha: 0.15)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (title != null)
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color: AppTheme.surfaceCard.withValues(alpha: 0.3),
-                border: Border(
-                  bottom: BorderSide(color: AppTheme.textSecondary.withValues(alpha: 0.15)),
-                ),
-              ),
-              child: Text(
-                title,
-                style: AppTheme.monoSecondary.copyWith(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.0,
-                ),
+  Future<void> _changePassword(BuildContext context, WidgetRef ref) async {
+    final current = TextEditingController();
+    final next = TextEditingController();
+    final form = GlobalKey<FormState>();
+    var saving = false;
+    await showAppSheet<void>(
+      context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, set) => SheetBody(
+          title: 'Change password',
+          children: [
+            Form(
+              key: form,
+              child: Column(
+                children: [
+                  AppTextField(
+                    controller: current,
+                    label: 'Current password',
+                    obscure: true,
+                    icon: Icons.lock_outline_rounded,
+                    validator: (v) => (v?.isEmpty ?? true) ? 'Enter your current password' : null,
+                  ),
+                  const SizedBox(height: Space.md),
+                  AppTextField(
+                    controller: next,
+                    label: 'New password',
+                    obscure: true,
+                    icon: Icons.lock_reset_rounded,
+                    validator: (v) => (v?.length ?? 0) < 6 ? 'Use at least 6 characters' : null,
+                  ),
+                ],
               ),
             ),
-          ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: children.length,
-            separatorBuilder: (context, index) => Divider(
-              color: AppTheme.textSecondary.withValues(alpha: 0.15),
-              height: 1.0,
-              thickness: 1.0,
+            const SizedBox(height: Space.lg),
+            PrimaryButton(
+              label: 'Update password',
+              loading: saving,
+              onPressed: () async {
+                if (!form.currentState!.validate()) return;
+                set(() => saving = true);
+                try {
+                  await ref.read(authRepositoryProvider).changePassword(current: current.text, next: next.text);
+                  if (ctx.mounted) Navigator.of(ctx).pop();
+                  Toast.success('Password updated');
+                } catch (e) {
+                  set(() => saving = false);
+                  Toast.error(e);
+                }
+              },
             ),
-            itemBuilder: (context, index) => children[index],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSettingRow({
-    required IconData icon,
-    Color iconColor = AppTheme.accent,
-    required String title,
-    Color titleColor = AppTheme.textPrimary,
-    String? subtitle,
-    Widget? trailing,
-    VoidCallback? onTap,
-  }) {
-    return ListTile(
-      onTap: onTap,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      leading: Container(
-        padding: const EdgeInsets.all(8),
-        decoration: BoxDecoration(
-          color: AppTheme.surfaceCard,
-          border: Border.all(color: iconColor.withValues(alpha: 0.3)),
-        ),
-        child: Icon(icon, color: iconColor, size: 20),
-      ),
-      title: Text(
-        title,
-        style: TextStyle(
-          color: titleColor,
-          fontSize: 14,
-          fontWeight: FontWeight.w600,
+          ],
         ),
       ),
-      subtitle: subtitle != null
-          ? Padding(
-              padding: const EdgeInsets.only(top: 2.0),
-              child: Text(
-                subtitle,
-                style: AppTheme.monoSecondary.copyWith(fontSize: 11),
-              ),
-            )
-          : null,
-      trailing: trailing ??
-          (onTap != null
-              ? const Icon(
-                  Icons.chevron_right,
-                  color: AppTheme.textSecondary,
-                  size: 20,
-                )
-              : null),
     );
+    current.dispose();
+    next.dispose();
   }
 }

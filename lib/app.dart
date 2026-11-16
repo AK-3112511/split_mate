@@ -1,175 +1,66 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:app_links/app_links.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'features/auth/data/auth_repository.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:material_ui/material_ui.dart';
+import 'core/router/app_router.dart';
+import 'core/session/bootstrap.dart';
 import 'core/theme/app_theme.dart';
-import 'core/utils/router.dart';
-import 'core/utils/recurring_engine.dart';
-import 'features/groups/data/group_mirror_service.dart';
+import 'core/theme/theme_mode_provider.dart';
+import 'shared_widgets/feedback.dart';
 
-class MyApp extends ConsumerStatefulWidget {
-  const MyApp({super.key});
+class SplitMateApp extends ConsumerStatefulWidget {
+  const SplitMateApp({super.key});
 
   @override
-  ConsumerState<MyApp> createState() => _MyAppState();
+  ConsumerState<SplitMateApp> createState() => _SplitMateAppState();
 }
 
-class _MyAppState extends ConsumerState<MyApp> {
-  late final AppLinks _appLinks;
-  StreamSubscription<Uri>? _linkSubscription;
+class _SplitMateAppState extends ConsumerState<SplitMateApp> {
+  final _appLinks = AppLinks();
+  StreamSubscription<Uri>? _links;
 
   @override
   void initState() {
     super.initState();
-    _initDeepLinks();
-  }
-
-  void _initDeepLinks() {
-    _appLinks = AppLinks();
-
-    // Handle initial link if app was opened via deep link from cold start
+    // Deep links: splitmate://join?groupId=…&code=…  (also accepts /join?code=…)
     _appLinks.getInitialLink().then((uri) {
-      if (uri != null) {
-        _handleIncomingLink(uri);
-      }
-    });
-
-    // Listen to incoming links while app is running
-    _linkSubscription = _appLinks.uriLinkStream.listen((uri) {
-      _handleIncomingLink(uri);
-    });
+      if (uri != null) _handleLink(uri);
+    }).catchError((_) {});
+    _links = _appLinks.uriLinkStream.listen(_handleLink, onError: (_) {});
   }
 
-  void _handleIncomingLink(Uri uri) {
-    if (uri.scheme == 'splitmate' && uri.host == 'join') {
-      final groupId = uri.queryParameters['groupId'];
-      final code = uri.queryParameters['code'];
-      if (groupId != null && code != null) {
-        ref.read(routerProvider).go('/groups/join?groupId=$groupId&inviteCode=$code');
-      }
+  void _handleLink(Uri uri) {
+    final isJoin = (uri.scheme == 'splitmate' && uri.host == 'join') || uri.path == '/join';
+    final code = uri.queryParameters['code'];
+    if (isJoin && code != null && code.isNotEmpty) {
+      // The router's redirect parks this behind login/verification if needed.
+      ref.read(routerProvider).go('/join?code=${Uri.encodeComponent(code)}');
     }
   }
 
   @override
   void dispose() {
-    _linkSubscription?.cancel();
+    _links?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(sessionBootstrapProvider);
     final router = ref.watch(routerProvider);
-
-    ref.listen<AsyncValue<User?>>(authStateProvider, (prev, next) {
-      next.whenData((user) {
-        if (user != null) {
-          // Run recurring expense templates on launch (existing)
-          processRecurringTemplates(ref);
-          // Run Section 12 group mirror scan on launch — detects any
-          // settled splits the user hasn't yet mirrored into personal expenses.
-          runGroupMirrorScan(ref);
-        }
-      });
-    });
-
     return MaterialApp.router(
-      title: 'SplitTrack',
-      theme: AppTheme.darkTheme,
-      routerConfig: router,
+      title: 'SplitMate',
       debugShowCheckedModeBanner: false,
-    );
-  }
-}
-
-class MainShell extends StatelessWidget {
-  final Widget child;
-  const MainShell({super.key, required this.child});
-
-  @override
-  Widget build(BuildContext context) {
-    final GoRouterState state = GoRouterState.of(context);
-    final String location = state.matchedLocation;
-    
-    int selectedIndex = 0;
-    if (location.startsWith('/groups')) {
-      selectedIndex = 1;
-    } else if (location.startsWith('/friends')) {
-      selectedIndex = 2;
-    } else if (location.startsWith('/profile')) {
-      selectedIndex = 3;
-    }
-
-    return Scaffold(
-      body: child,
-      bottomNavigationBar: Container(
-        decoration: BoxDecoration(
-          border: Border(
-            top: BorderSide(
-              color: AppTheme.textSecondary.withValues(alpha: 0.2),
-              width: 1,
-            ),
-          ),
-        ),
-        child: BottomNavigationBar(
-          currentIndex: selectedIndex,
-          onTap: (index) {
-            switch (index) {
-              case 0:
-                context.go('/');
-                break;
-              case 1:
-                context.go('/groups');
-                break;
-              case 2:
-                context.go('/friends');
-                break;
-              case 3:
-                context.go('/profile');
-                break;
-            }
-          },
-          backgroundColor: AppTheme.surfaceBase,
-          selectedItemColor: AppTheme.accent,
-          unselectedItemColor: AppTheme.textSecondary,
-          type: BottomNavigationBarType.fixed,
-          showSelectedLabels: true,
-          showUnselectedLabels: true,
-          selectedLabelStyle: const TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 0.5,
-          ),
-          unselectedLabelStyle: const TextStyle(
-            fontSize: 11,
-            letterSpacing: 0.5,
-          ),
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.receipt_long_outlined),
-              activeIcon: Icon(Icons.receipt_long),
-              label: 'Personal',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.group_outlined),
-              activeIcon: Icon(Icons.group),
-              label: 'Groups',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.people_outlined),
-              activeIcon: Icon(Icons.people),
-              label: 'Friends',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.person_outlined),
-              activeIcon: Icon(Icons.person),
-              label: 'Profile',
-            ),
-          ],
-        ),
-      ),
+      theme: AppTheme.light,
+      darkTheme: AppTheme.dark,
+      themeMode: ref.watch(themeModeProvider),
+      routerConfig: router,
+      scaffoldMessengerKey: rootMessengerKey,
+      // Bridges ThemeData/localizations to third-party packages (go_router,
+      // fl_chart, confetti…) that still import legacy package:flutter/material.dart.
+      // Remove once those packages migrate to package:material_ui.
+      // ignore: deprecated_member_use
+      builder: (context, child) => MaterialUiCompatibilityBridge(child: child!),
     );
   }
 }

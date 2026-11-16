@@ -1,98 +1,97 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../../core/domain/recurrence.dart';
+import '../../../core/domain/settlement.dart';
+import '../../../core/domain/split_calculator.dart';
+import '../../personal_expenses/domain/expense_model.dart' show readDate;
 
-// ── SplitEntry ────────────────────────────────────────────────────────────────
-// New schema: splits = { uid: { amountOwed: number, settled: bool } }
-// Replaces the old flat { uid: number } format.
-// recomputeBalances/settleUp are NEVER aware of the settled flag — they always
-// read only amountOwed via GroupExpenseModel.splitsAmountOwed.
-
+/// One member's share of a group expense.
+/// Stored as `splits: { uid: { amountOwed, settled } }` (v1 also had `{ uid: number }`).
 class SplitEntry {
   final double amountOwed;
+
+  /// True once this debt is cleared (always true for the payer's own share).
+  /// Only drives personal mirroring — never the balance maths.
   final bool settled;
 
   const SplitEntry({required this.amountOwed, required this.settled});
 
-  Map<String, dynamic> toMap() => {
-        'amountOwed': amountOwed,
-        'settled': settled,
-      };
+  Map<String, dynamic> toMap() => {'amountOwed': amountOwed, 'settled': settled};
 
   factory SplitEntry.fromMap(dynamic raw) {
-    // New format: { amountOwed: number, settled: bool }
     if (raw is Map) {
+      final a = raw['amountOwed'];
       return SplitEntry(
-        amountOwed: (raw['amountOwed'] ?? 0.0).toDouble(),
-        settled: raw['settled'] ?? false,
+        amountOwed: a is num && a.isFinite ? a.toDouble() : 0.0,
+        settled: raw['settled'] == true,
       );
     }
-    // Backward-compat: old flat number format { uid: number }
-    return SplitEntry(
-      amountOwed: (raw ?? 0.0).toDouble(),
-      settled: false,
-    );
+    return SplitEntry(amountOwed: raw is num && raw.isFinite ? raw.toDouble() : 0.0, settled: false);
   }
 }
-
-// ── GroupExpenseItemModel ─────────────────────────────────────────────────────
 
 class GroupExpenseItemModel {
   final String name;
   final double amount;
   final List<String> memberUids;
 
-  GroupExpenseItemModel({
-    required this.name,
-    required this.amount,
-    required this.memberUids,
-  });
+  const GroupExpenseItemModel({required this.name, required this.amount, required this.memberUids});
 
-  Map<String, dynamic> toMap() {
-    return {
-      'name': name,
-      'amount': amount,
-      'memberUids': memberUids,
-    };
-  }
+  SplitItem toSplitItem() => SplitItem(name: name, amount: amount, memberUids: memberUids);
+
+  Map<String, dynamic> toMap() => {'name': name, 'amount': amount, 'memberUids': memberUids};
 
   factory GroupExpenseItemModel.fromMap(Map<String, dynamic> map) {
-    final rawUids = map['memberUids'] ?? [];
-    final List<String> uids = List<String>.from(rawUids.map((e) => e.toString()));
+    final a = map['amount'];
     return GroupExpenseItemModel(
-      name: map['name'] ?? '',
-      amount: (map['amount'] ?? 0.0).toDouble(),
-      memberUids: uids,
+      name: (map['name'] ?? '').toString(),
+      amount: a is num ? a.toDouble() : 0.0,
+      memberUids: List<String>.from((map['memberUids'] ?? const []).map((e) => e.toString())),
     );
   }
 }
 
-// ── GroupExpenseModel ─────────────────────────────────────────────────────────
+/// A shared expense or a payment between two members, inside a group.
+class GroupExpenseModel implements LedgerEntry {
+  static const String typeExpense = 'expense';
+  static const String typePayment = 'payment';
 
-class GroupExpenseModel {
   final String expenseId;
-  final String payerUid;
-  final double amount;
-  final String category;
-  final String description;
-  final String splitType; // 'equal' | 'custom' | 'percentage' | 'itemized'
 
-  /// New schema: uid → SplitEntry { amountOwed, settled }
+  /// 'expense' | 'payment'. Null on v1 docs (payments detected by category).
+  final String? type;
+  @override
+  final String payerUid;
+  @override
+  final double amount;
+
+  /// Category snapshot (name + look) so every member sees the same category.
+  final String category;
+  final String? categoryIcon;
+  final String? categoryColor;
+  final String description;
+  final String? notes;
+  final String splitType;
   final Map<String, SplitEntry> splits;
 
+  /// Day the money was spent (user-picked). v1 falls back to createdAt.
+  final DateTime date;
   final DateTime createdAt;
+  final DateTime? updatedAt;
+  final String? createdBy;
+  @override
   final bool isDeleted;
-  final String? receiptUrl;
+  final String? receiptId;
+  final String? legacyReceipt;
 
-  // Recurring fields
   final bool isRecurringTemplate;
-  final String? recurrenceInterval; // 'weekly' | 'monthly'
+  final String? recurrenceInterval;
   final DateTime? lastGeneratedDate;
   final String? generatedFromTemplateId;
   final bool isCancelled;
 
-  // Itemized splitting fields
   final List<GroupExpenseItemModel>? items;
 
-  GroupExpenseModel({
+  const GroupExpenseModel({
     required this.expenseId,
     required this.payerUid,
     required this.amount,
@@ -100,9 +99,17 @@ class GroupExpenseModel {
     required this.description,
     required this.splitType,
     required this.splits,
+    required this.date,
     required this.createdAt,
+    this.type = typeExpense,
+    this.categoryIcon,
+    this.categoryColor,
+    this.notes,
+    this.updatedAt,
+    this.createdBy,
     this.isDeleted = false,
-    this.receiptUrl,
+    this.receiptId,
+    this.legacyReceipt,
     this.isRecurringTemplate = false,
     this.recurrenceInterval,
     this.lastGeneratedDate,
@@ -111,87 +118,111 @@ class GroupExpenseModel {
     this.items,
   });
 
-  // ── Compatibility getter for settlement_algorithm.dart ──────────────────────
-  // recomputeBalances and settleUp call this to get { uid: amountOwed } exactly
-  // as before — zero change to settlement logic, settled flag is invisible.
-  Map<String, double> get splitsAmountOwed {
-    return splits.map((uid, entry) => MapEntry(uid, entry.amountOwed));
-  }
+  /// Payment records settle debts; they're not spending.
+  bool get isPayment =>
+      type == typePayment ||
+      (type == null && category.trim().toLowerCase() == 'settlement');
 
-  bool get isSettlement =>
-      category == 'Settlement' ||
-      description == 'Settlement Payment' ||
-      category.toLowerCase() == 'settlement' ||
-      description.toLowerCase().contains('settlement');
+  @override
+  Map<String, double> get shareByUid =>
+      {for (final e in splits.entries) e.key: e.value.amountOwed};
 
-  Map<String, dynamic> toMap() {
-    return {
-      'payerUid': payerUid,
-      'amount': amount,
-      'category': category,
-      'description': description,
-      'splitType': splitType,
-      // New format: { uid: { amountOwed, settled } }
-      'splits': splits.map((uid, entry) => MapEntry(uid, entry.toMap())),
-      'createdAt': Timestamp.fromDate(createdAt),
-      'isDeleted': isDeleted,
-      'receiptUrl': receiptUrl,
-      'isRecurringTemplate': isRecurringTemplate,
-      'recurrenceInterval': recurrenceInterval,
-      'lastGeneratedDate': lastGeneratedDate != null ? Timestamp.fromDate(lastGeneratedDate!) : null,
-      'generatedFromTemplateId': generatedFromTemplateId,
-      'isCancelled': isCancelled,
-      'items': items?.map((i) => i.toMap()).toList(),
-    };
-  }
+  /// For a payment: the person who received the money.
+  String? get paymentRecipient =>
+      isPayment ? splits.keys.firstWhere((k) => k != payerUid, orElse: () => '') : null;
+
+  SplitMode get splitMode => SplitMode.fromStorage(splitType);
+  RecurrenceInterval? get interval => RecurrenceInterval.fromKey(recurrenceInterval);
+  bool get hasReceipt => receiptId != null || (legacyReceipt?.isNotEmpty ?? false);
+  double shareOf(String uid) => splits[uid]?.amountOwed ?? 0.0;
+  bool involves(String uid) => payerUid == uid || (splits[uid]?.amountOwed ?? 0) > 0;
+
+  Map<String, dynamic> toMap() => {
+        'type': type ?? typeExpense,
+        'payerUid': payerUid,
+        'amount': amount,
+        'category': category,
+        'categoryIcon': categoryIcon,
+        'categoryColor': categoryColor,
+        'description': description,
+        'notes': notes,
+        'splitType': splitType,
+        'splits': splits.map((uid, e) => MapEntry(uid, e.toMap())),
+        'date': Timestamp.fromDate(date),
+        'createdAt': Timestamp.fromDate(createdAt),
+        'updatedAt': FieldValue.serverTimestamp(),
+        'createdBy': createdBy,
+        'isDeleted': isDeleted,
+        'receiptId': receiptId,
+        'isRecurringTemplate': isRecurringTemplate,
+        'recurrenceInterval': recurrenceInterval,
+        'lastGeneratedDate': lastGeneratedDate != null ? Timestamp.fromDate(lastGeneratedDate!) : null,
+        'generatedFromTemplateId': generatedFromTemplateId,
+        'isCancelled': isCancelled,
+        'items': items?.map((i) => i.toMap()).toList(),
+      };
 
   factory GroupExpenseModel.fromMap(Map<String, dynamic> map, String id) {
-    final rawDate = map['createdAt'];
-    DateTime parsedDate = DateTime.now();
-    if (rawDate is Timestamp) {
-      parsedDate = rawDate.toDate();
-    } else if (rawDate is String) {
-      parsedDate = DateTime.tryParse(rawDate) ?? DateTime.now();
+    final created = readDate(map['createdAt']) ?? DateTime.now();
+    final rawSplits = map['splits'];
+    final splits = <String, SplitEntry>{};
+    if (rawSplits is Map) {
+      rawSplits.forEach((k, v) => splits[k.toString()] = SplitEntry.fromMap(v));
     }
-
-    // Parse splits — supports both old { uid: number } and new { uid: { amountOwed, settled } }
-    final rawSplits = map['splits'] ?? {};
-    final Map<String, SplitEntry> parsedSplits = {};
-    (rawSplits as Map).forEach((key, val) {
-      parsedSplits[key.toString()] = SplitEntry.fromMap(val);
-    });
-
-    final rawLastGen = map['lastGeneratedDate'];
-    DateTime? lastGenDate;
-    if (rawLastGen is Timestamp) {
-      lastGenDate = rawLastGen.toDate();
-    }
-
     final rawItems = map['items'];
-    List<GroupExpenseItemModel>? parsedItems;
-    if (rawItems is List) {
-      parsedItems = rawItems
-          .map((item) => GroupExpenseItemModel.fromMap(Map<String, dynamic>.from(item)))
-          .toList();
-    }
-
+    final a = map['amount'];
     return GroupExpenseModel(
       expenseId: id,
-      payerUid: map['payerUid'] ?? '',
-      amount: (map['amount'] ?? 0.0).toDouble(),
-      category: map['category'] ?? '',
-      description: map['description'] ?? '',
-      splitType: map['splitType'] ?? 'equal',
-      splits: parsedSplits,
-      createdAt: parsedDate,
-      isDeleted: map['isDeleted'] ?? false,
-      receiptUrl: map['receiptUrl'],
-      isRecurringTemplate: map['isRecurringTemplate'] ?? false,
-      recurrenceInterval: map['recurrenceInterval'],
-      lastGeneratedDate: lastGenDate,
-      generatedFromTemplateId: map['generatedFromTemplateId'],
-      isCancelled: map['isCancelled'] ?? false,
-      items: parsedItems,
+      type: map['type'] as String?,
+      payerUid: (map['payerUid'] ?? '').toString(),
+      amount: a is num && a.isFinite ? a.toDouble() : 0.0,
+      category: (map['category'] ?? '').toString(),
+      categoryIcon: map['categoryIcon'] as String?,
+      categoryColor: map['categoryColor'] as String?,
+      description: (map['description'] ?? '').toString(),
+      notes: map['notes'] as String?,
+      splitType: (map['splitType'] ?? 'equal').toString(),
+      splits: splits,
+      date: readDate(map['date']) ?? created,
+      createdAt: created,
+      updatedAt: readDate(map['updatedAt']),
+      createdBy: map['createdBy'] as String?,
+      isDeleted: map['isDeleted'] == true,
+      receiptId: map['receiptId'] as String?,
+      legacyReceipt: map['receiptUrl'] as String?,
+      isRecurringTemplate: map['isRecurringTemplate'] == true,
+      recurrenceInterval: map['recurrenceInterval'] as String?,
+      lastGeneratedDate: readDate(map['lastGeneratedDate']),
+      generatedFromTemplateId: map['generatedFromTemplateId'] as String?,
+      isCancelled: map['isCancelled'] == true,
+      items: rawItems is List
+          ? rawItems
+              .whereType<Map>()
+              .map((i) => GroupExpenseItemModel.fromMap(Map<String, dynamic>.from(i)))
+              .toList()
+          : null,
     );
+  }
+
+  /// Builds the new splits for an edit: shares come from [newShares]; a
+  /// debtor's `settled` flag is kept only if their share and the payer are
+  /// unchanged (so editing never silently un-settles or over-settles people).
+  static Map<String, SplitEntry> mergeSettledFlags({
+    required Map<String, double> newShares,
+    required String newPayer,
+    GroupExpenseModel? previous,
+  }) {
+    final out = <String, SplitEntry>{};
+    newShares.forEach((uid, share) {
+      var settled = uid == newPayer;
+      if (!settled && previous != null && previous.payerUid == newPayer) {
+        final old = previous.splits[uid];
+        if (old != null && old.settled && (old.amountOwed * 100).round() == (share * 100).round()) {
+          settled = true;
+        }
+      }
+      out[uid] = SplitEntry(amountOwed: share, settled: settled);
+    });
+    return out;
   }
 }

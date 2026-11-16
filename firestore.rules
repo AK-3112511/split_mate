@@ -1,82 +1,214 @@
 rules_version = '2';
 
+// SplitMate v2 security rules — see AUDIT.md (S-01 … S-08) for what each block fixes.
+// All queries the app makes are equality / array-contains / single-field, so no
+// composite indexes are needed.
 service cloud.firestore {
   match /databases/{database}/documents {
-    
-    // Helper function to check if the user is a member of the group
-    function isGroupMember(groupId) {
-      return request.auth != null && 
-        request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.members;
+
+    // ── Helpers ────────────────────────────────────────────────────────────
+    function signedIn() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+    function changed() { return request.resource.data.diff(resource.data).affectedKeys(); }
+
+    function groupPath(gid) { return /databases/$(database)/documents/groups/$(gid); }
+    function groupBefore(gid) { return get(groupPath(gid)).data; }
+    function groupAfter(gid) { return getAfter(groupPath(gid)).data; }
+    function isMember(gid) { return signedIn() && me() in groupBefore(gid).members; }
+    function isMemberAfter(gid) { return signedIn() && me() in groupAfter(gid).members; }
+
+    // v1 groups may lack `admins`; the creator is then the admin.
+    function adminsOf(g) { return g.get('admins', []); }
+    function isAdminOf(g) {
+      return me() in adminsOf(g) || (adminsOf(g).size() == 0 && g.get('createdBy', '') == me());
     }
-    
-    // 1. Users rules
-    match /users/{userId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.uid == userId;
-      
-      match /expenses/{expenseId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
+
+    function membersAdded() {
+      return request.resource.data.members.toSet().difference(resource.data.members.toSet());
+    }
+    function membersRemoved() {
+      return resource.data.members.toSet().difference(request.resource.data.members.toSet());
+    }
+    function onlyAddsSelf() { return membersAdded() == [me()].toSet() && membersRemoved().size() == 0; }
+    function onlyRemovesSelf() { return membersRemoved() == [me()].toSet() && membersAdded().size() == 0; }
+
+    // ── Public profiles (no email here — it lives in private/profile) ──────
+    match /users/{uid} {
+      allow get, list: if signedIn();
+
+      // A friend code may only be set if this user owns it in /app_codes (S-05).
+      function ownsCode() {
+        return !('appCode' in request.resource.data)
+          || getAfter(/databases/$(database)/documents/app_codes/$(request.resource.data.appCode)).data.uid == me();
       }
-    }
-    
-    // 2. Friends relations rules
-    match /friends/{userId}/friendList/{friendId} {
-      allow read: if request.auth != null && 
-        (request.auth.uid == userId || request.auth.uid == friendId);
-        
-      allow create: if request.auth != null && 
-        (request.auth.uid == userId || request.auth.uid == friendId) &&
-        request.resource.data.status == 'pending' &&
-        request.resource.data.sentBy == request.auth.uid;
-        
-      allow update: if request.auth != null && 
-        (request.auth.uid == userId || request.auth.uid == friendId) &&
-        (
-          (resource.data.status == 'pending' && 
-           request.resource.data.status == 'accepted' && 
-           resource.data.sentBy != request.auth.uid) ||
-          (request.resource.data.status == resource.data.status)
-        );
-        
-      allow delete: if request.auth != null && 
-        (request.auth.uid == userId || request.auth.uid == friendId);
-    }
-    
-    // 3. Group Invites rules
-    match /group_invites/{inviteId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null && request.resource.data.senderUid == request.auth.uid;
-      allow update: if request.auth != null && 
-        (resource.data.recipientUid == request.auth.uid || resource.data.senderUid == request.auth.uid);
-      allow delete: if request.auth != null && 
-        (resource.data.recipientUid == request.auth.uid || resource.data.senderUid == request.auth.uid);
-    }
-    
-    // 4. Groups rules
-    match /groups/{groupId} {
-      allow create: if request.auth != null;
-      allow read: if request.auth != null;
-      allow update: if request.auth != null;
+      // Email may be removed from the public doc (v1 migration) but never added (S-04).
+      function noPublicEmail() {
+        return !('email' in request.resource.data);
+      }
+
+      allow create: if signedIn() && me() == uid && ownsCode() && noPublicEmail();
+      allow update: if signedIn() && me() == uid
+        && (!('appCode' in changed()) || ownsCode())
+        && (!('email' in changed()) || noPublicEmail());
       allow delete: if false;
 
-      match /expenses/{expenseId} {
-        allow read: if isGroupMember(groupId);
-        allow create, update: if isGroupMember(groupId);
-        allow delete: if false;
-      }
-
-      match /activity/{activityId} {
-        allow read: if isGroupMember(groupId);
-        allow create, update: if request.auth != null;
-        allow delete: if false;
+      // Personal expenses, receipts, reminders, private profile: owner only.
+      match /{collection}/{docId} {
+        allow read, write: if signedIn() && me() == uid;
       }
     }
 
-    // 5. Notifications rules
-    match /notifications/{notificationId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null && request.resource.data.senderUid == request.auth.uid;
-      allow update, delete: if request.auth != null;
+    // ── Friend code registry (guarantees unique codes) ─────────────────────
+    match /app_codes/{code} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn() && request.resource.data.uid == me() && code.size() == 6;
+      allow update: if false;
+      allow delete: if signedIn() && resource.data.uid == me();
+    }
+
+    // ── Friendships (S-02: no forced friendships, no editing others' data) ─
+    match /friends/{owner}/friendList/{other} {
+      function party() { return signedIn() && (me() == owner || me() == other); }
+
+      allow read: if party();
+      allow create: if party()
+        && request.resource.data.status == 'pending'
+        && request.resource.data.sentBy == me();
+      allow update: if party() && (
+        // The person who did NOT send the request accepts it — status only.
+        (resource.data.status == 'pending'
+          && request.resource.data.status == 'accepted'
+          && resource.data.sentBy != me()
+          && changed().hasOnly(['status']))
+        ||
+        // My private nickname on my own edge.
+        (me() == owner && changed().hasOnly(['nickname']))
+      );
+      allow delete: if party();
+    }
+
+    // ── Group join codes (lookup without exposing the group) ───────────────
+    match /group_codes/{code} {
+      allow get: if signedIn();
+      allow list: if false;
+      allow create: if signedIn()
+        && isMemberAfter(request.resource.data.groupId)
+        && groupAfter(request.resource.data.groupId).inviteCode == code;
+      allow update: if signedIn()
+        && request.resource.data.groupId == resource.data.groupId
+        && isMember(resource.data.groupId);
+      allow delete: if signedIn() && (
+        isAdminOf(groupBefore(resource.data.groupId))
+        || groupAfter(resource.data.groupId).get('isDeleted', false) == true
+      );
+    }
+
+    // ── Groups (S-01) ──────────────────────────────────────────────────────
+    match /groups/{gid} {
+      allow read: if signedIn() && me() in resource.data.members;
+
+      allow create: if signedIn()
+        && request.resource.data.members == [me()]
+        && request.resource.data.admins == [me()]
+        && request.resource.data.createdBy == me()
+        && request.resource.data.isDeleted == false;
+
+      function validInvite(inviteId) {
+        let inv = get(/databases/$(database)/documents/group_invites/$(inviteId)).data;
+        return inv.recipientUid == me() && inv.groupId == gid && inv.status == 'pending';
+      }
+
+      allow update: if signedIn() && (
+        // Admins manage the group (never its creator field).
+        (me() in resource.data.members && isAdminOf(resource.data) && !('createdBy' in changed()))
+        ||
+        // Any member may leave (removing only themselves; the last one deletes it).
+        (me() in resource.data.members
+          && changed().hasOnly(['members', 'admins', 'isDeleted', 'updatedAt'])
+          && onlyRemovesSelf()
+          && request.resource.data.get('admins', []).toSet().difference(adminsOf(resource.data).toSet()).size() == 0
+          && (!('isDeleted' in changed()) || request.resource.data.members.size() == 0))
+        ||
+        // Any member may backfill a missing v1 invite code once.
+        (me() in resource.data.members
+          && changed().hasOnly(['inviteCode', 'updatedAt'])
+          && resource.data.get('inviteCode', null) == null)
+        ||
+        // A non-member joins with the group's current code.
+        (!(me() in resource.data.members)
+          && resource.data.get('isDeleted', false) == false
+          && changed().hasOnly(['members', 'joinCode', 'updatedAt'])
+          && onlyAddsSelf()
+          && request.resource.data.joinCode == resource.data.inviteCode)
+        ||
+        // A non-member accepts an invite addressed to them.
+        (!(me() in resource.data.members)
+          && resource.data.get('isDeleted', false) == false
+          && changed().hasOnly(['members', 'joinInviteId', 'updatedAt'])
+          && onlyAddsSelf()
+          && validInvite(request.resource.data.joinInviteId))
+      );
+
+      allow delete: if false; // soft delete only
+
+      // Expenses & payments (S-08: basic shape validation, never hard-deleted).
+      match /expenses/{eid} {
+        function validExpense() {
+          let d = request.resource.data;
+          return d.amount is number && d.amount > 0 && d.amount <= 10000000
+            && d.splits is map && d.payerUid is string;
+        }
+        allow read: if isMember(gid);
+        allow create, update: if isMember(gid) && validExpense();
+        allow delete: if false;
+      }
+
+      // Activity timeline (S-07): members only, attributed to the writer, immutable.
+      match /activity/{aid} {
+        allow read: if isMember(gid);
+        allow create: if (isMember(gid) || isMemberAfter(gid)) && request.resource.data.actorUid == me();
+        allow update, delete: if false;
+      }
+
+      // Receipt images (kept out of expense docs).
+      match /receipts/{rid} {
+        allow read, create, delete: if isMember(gid);
+        allow update: if false;
+      }
+    }
+
+    // ── Group invites (S-06) ───────────────────────────────────────────────
+    match /group_invites/{iid} {
+      allow read: if signedIn() && (
+        resource.data.recipientUid == me()
+        || resource.data.senderUid == me()
+        || isMember(resource.data.groupId)
+      );
+      allow create: if signedIn()
+        && request.resource.data.senderUid == me()
+        && request.resource.data.status == 'pending'
+        && (isMember(request.resource.data.groupId) || isMemberAfter(request.resource.data.groupId));
+      allow update: if signedIn()
+        && changed().hasOnly(['status'])
+        && (resource.data.recipientUid == me() || isMember(resource.data.groupId));
+      allow delete: if signedIn() && (
+        resource.data.senderUid == me() || isAdminOf(groupBefore(resource.data.groupId))
+      );
+    }
+
+    // ── Notifications (S-03): only the recipient can see or change them ────
+    match /notifications/{nid} {
+      allow read: if signedIn() && resource.data.recipientUid == me();
+      allow create: if signedIn()
+        && request.resource.data.senderUid == me()
+        && request.resource.data.recipientUid is string
+        && request.resource.data.recipientUid != me()
+        && request.resource.data.isRead == false
+        && request.resource.data.message is string
+        && request.resource.data.message.size() <= 300;
+      allow update: if signedIn() && resource.data.recipientUid == me() && changed().hasOnly(['isRead']);
+      allow delete: if signedIn() && resource.data.recipientUid == me();
     }
   }
 }
