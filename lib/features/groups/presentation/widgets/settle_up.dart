@@ -18,18 +18,19 @@ import '../../domain/group_expense_model.dart';
 import '../../domain/group_model.dart';
 
 /// Builds a UPI intent (NPCI deep-link spec). The app never moves money itself.
+///
+/// Encoded by hand with %20 for spaces: `Uri.queryParameters` uses '+', which
+/// UPI apps (Google Pay) show literally ("SplitMate+·+Trip").
 Uri upiUri({required String vpa, required String name, required double amount, required String note}) {
-  return Uri(
-    scheme: 'upi',
-    host: 'pay',
-    queryParameters: {
-      'pa': vpa.trim(),
-      'pn': name,
-      'am': Money.round2(amount).toStringAsFixed(2),
-      'cu': 'INR',
-      'tn': note.length > 50 ? note.substring(0, 50) : note,
-    },
-  );
+  final params = {
+    'pa': vpa.trim(),
+    'pn': name,
+    'am': Money.round2(amount).toStringAsFixed(2),
+    'cu': 'INR',
+    'tn': note.length > 50 ? note.substring(0, 50) : note,
+  };
+  final query = params.entries.map((e) => '${e.key}=${Uri.encodeComponent(e.value)}').join('&');
+  return Uri.parse('upi://pay?$query');
 }
 
 /// Record that [fromUid] paid [toUid]. Amount is editable (partial payments).

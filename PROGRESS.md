@@ -15,7 +15,7 @@
 | 4 | Design system — tokens, light/dark theme, components, motion | ✅ 2026-11-15 |
 | 5 | Screen redesign + approved removals | ✅ 2026-11-15 |
 | 6 | New features — budgets, UPI, search & details, recap & export | ✅ 2026-11-15 |
-| 7 | Verification — analyze, tests, rules, manual E2E, release build | 🟡 automated checks done; manual E2E pending on a device |
+| 7 | Verification — analyze, tests, rules, manual E2E, release build | 🟡 single- and two-account E2E done on device; offline + sign-up flows pending |
 
 ## Phase log
 
@@ -128,7 +128,24 @@ Driven via adb with screenshots; every test entry was labelled `TEST`, kept in a
 19. Material FABs without the Pop Brutal shadow → shared `PopFab`
 20. Tight spacing between category cards
 
-**Not tested on device (would need a second account or real money):** recording/receiving a real payment, Pay via UPI hand-off, friend request accept between two accounts, join-by-code from another account, offline mode, sign-up / email verification / Google sign-in.
+**Not tested on device (would need a second account or real money):** ~~recording/receiving a real payment, Pay via UPI hand-off, friend request accept between two accounts, join-by-code from another account~~ (done below), offline mode, sign-up / email verification / Google sign-in.
+
+### Two-account on-device test — ✅ 2026-11-16 (same phone, A = your account, B = new test account "qwer")
+Accounts switched on the phone (you signed in each time). Test data lived in two throwaway groups, **TEST Pay** and **TEST Link**; afterwards both groups, A's two mirrored entries, A's test notifications and the A↔B friendship were removed, so A is back to how it was (Home: spent ₹150, owed ₹100, owe ₹0). B keeps the test UPI ID `splitmate.qa.test@upi`.
+
+**Verified working:** join by deep link while logged out (link survives sign-in, lands on the invite screen); join by code typed in lowercase; back after joining; friend request by code → badge → accept on the other account; unfriend (open-balance warning); mutual request auto-accepts (lowercase code); group expense equal and % split (live "left to assign" meter); notifications across accounts (expense added, friend request/accepted, paid you, reminder, marked received) and routing to the group; pairwise balances on Balances tab and Friends; Pay via UPI → Android chooser (GPay / Amazon Pay / INDIE) → payee, amount and note reach GPay → "Did it go through?" → record; partial payment (₹50 of ₹150) then the rest → confetti + "All square"; creditor "Received" flow; Remind + "Reminded" cooldown; mirrors in both ledgers with group tag and category (debtor mirror after settlement); delete group; no stale A data after switching to B. No payment was made: GPay stayed locked and has no bank account.
+
+**Bugs found and fixed (re-verified on device):**
+1. **Denied listeners retried forever** (`retryOnPermissionDenied`): Firestore replays the cached snapshot before the server's denial, which reset the retry counter → ~2.4 re-listens/sec per stream after sign-out (3,316 denied listens in one session) and an endless loop for a removed member. Budget now refills only after 10 s of healthy subscription; verified: 4 attempts then stop.
+2. **Friend request card unreadable (black)**: translucent card tints let the Pop Brutal hard shadow show through. `BrutalSurface` now blends tints onto the opaque surface; fixes the request card, the friend sheet balance card and the group invitation card.
+3. **UPI note showed `SplitMate+·+TEST+Pay`** in GPay: `Uri.queryParameters` encodes spaces as `+`. Link is now built with `%20` (payee names with spaces were affected too).
+4. **Settlement by the other person never reached your ledger until a cold start**: the mirror scan ran once per user per app process, so signing out/in or coming back to the app skipped it. Bootstrap now re-runs after sign-out → sign-in, and an incremental scan runs when the app returns to the foreground (max once a minute). Cold-start path verified on device; the resume and re-login paths are covered by code review only.
+5. Personal info **Save button hidden behind the keyboard** → lifted above it.
+6. "Pay via UPI" label wrapped onto two lines → kept on one line.
+
+Checks: analyze clean, **85 tests pass** (new: `test/core/firestore_helper_test.dart`, `test/core/upi_uri_test.dart`).
+
+**Still open (minor):** a friend-request notification stays unread after you accept the request from the Friends tab; Back on Personal info discards unsaved edits without asking.
 
 ### New logo + animated splash — ✅ 2026-11-16
 - **Logo:** a coin split into two halves (mint = owed to you, coral = you owe) on brand yellow, with ink outlines and hard shadows. Drawn in code (`shared_widgets/logo_mark.dart`, animatable `split` value) and as PNGs (`assets/icon/icon.png`, adaptive foreground `icon_fg.png`, `assets/logo.png`) by `flutter_launcher_icons`. Preview: `docs/design/logo.png`.
@@ -144,20 +161,20 @@ Two test accounts (A, B) on an Android emulator.
 - [ ] Signup → verification email (once) → verify → home
 - [ ] Forgot password email arrives
 - [ ] Login with Google (terms respected)
-- [ ] A adds B by code → B accepts → both see each other; mutual request auto-accepts
+- [x] A adds B by code → B accepts → both see each other; mutual request auto-accepts
 - [ ] A creates group with B invited → B accepts → A opens group
-- [ ] Join by code (lowercase works) and by deep link while logged out
+- [x] Join by code (lowercase works) and by deep link while logged out
 - [ ] Add expense: Equal / Exact / Percent / Itemized; live "left to assign" meter
 - [ ] Edit expense (remove a member) → balances sum to 0; date & settled flags kept
 - [ ] Delete expense → mirrors hidden; members notified
-- [ ] Balances tab pairwise; Pay via UPI opens UPI app → Record payment → confetti
-- [ ] Mirrors appear in both personal ledgers with original dates & categories
+- [x] Balances tab pairwise; Pay via UPI opens UPI app → Record payment → confetti
+- [x] Mirrors appear in both personal ledgers with original dates & categories
 - [ ] Recurring monthly template on 31st → instances clamp to month end; no duplicates across A & B
 - [ ] Budget 80% / 100% alerts
 - [ ] Search finds personal + group expenses; detail sheet edit/delete
 - [ ] Monthly recap shares as image; CSV + PDF export open
 - [ ] Theme: System / Light / Dark persists across restart
 - [ ] Airplane mode: add expense → "Saved — will sync" → syncs later
-- [ ] Logout A → login B: no stale A data anywhere
+- [x] Logout A → login B: no stale A data anywhere
 - [ ] Notifications: each type routes correctly; mark all read; clear
 - [ ] Remove member with balance → warning; last admin cannot leave

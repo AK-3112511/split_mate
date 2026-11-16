@@ -209,7 +209,7 @@ class _DebtCard extends ConsumerWidget {
                         onPressed: () => payViaUpi(context, ref,
                             group: group, debt: debt, expenses: expenses, vpa: creditorUpi),
                         icon: const Icon(Icons.bolt_rounded, size: 18),
-                        label: const Text('Pay via UPI'),
+                        label: const FittedBox(fit: BoxFit.scaleDown, child: Text('Pay via UPI', maxLines: 1)),
                       ),
                     ),
                     const SizedBox(width: Space.sm),

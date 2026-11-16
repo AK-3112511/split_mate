@@ -173,6 +173,19 @@ Severity: **P0** = wrong money / crash / security · **P1** = broken flow · **P
 | D-05 | Login/Signup duplicated widgets | 5 | ✅ |
 | D-06 | `_getActorName` ×3, admin-check block ×4, activity icon mapping ×3 | 2/5 | ✅ |
 
+## E — Found in the two-account device test (2026-11-16)
+
+| ID | Sev | Issue | Where | Status |
+|---|---|---|---|---|
+| E-01 | P1 | Denied listeners re-subscribe forever: cached snapshot resets the retry counter before the server denial (sign-out, removed member) | core/utils/firestore_helper.dart | ✅ |
+| E-02 | P1 | Friend request / friend balance / group invite cards render black and unreadable (translucent tint over the hard shadow) | shared_widgets/motion.dart (`BrutalSurface`) | ✅ |
+| E-03 | P2 | UPI intent encodes spaces as `+` → note/payee shown as `SplitMate+·+Trip` in GPay | groups/presentation/widgets/settle_up.dart | ✅ |
+| E-04 | P1 | Debtor's mirror missing when the creditor records the payment, until a cold start (scan once per process; skipped on re-login / resume) | core/session/bootstrap.dart, app.dart | ✅ |
+| E-05 | P2 | Personal info Save hidden behind the keyboard | profile/presentation/personal_info_screen.dart | ✅ |
+| E-06 | P2 | "Pay via UPI" label wraps to two lines | groups/presentation/tabs/balances_tab.dart | ✅ |
+| E-07 | P2 | Friend-request notification stays unread after accepting from the Friends tab | notifications | ⬜ |
+| E-08 | P2 | Back on Personal info silently discards unsaved edits | profile/presentation/personal_info_screen.dart | ⬜ |
+
 ## Security rules — manual verification matrix
 
 The Firebase emulator needs Java (not installed on this machine), so rules were checked by review against every write path in the code. Before deploying, run these with the emulator or two test accounts (A = member, B = non-member):

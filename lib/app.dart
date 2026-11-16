@@ -18,10 +18,12 @@ class SplitMateApp extends ConsumerStatefulWidget {
 class _SplitMateAppState extends ConsumerState<SplitMateApp> {
   final _appLinks = AppLinks();
   StreamSubscription<Uri>? _links;
+  late final AppLifecycleListener _lifecycle;
 
   @override
   void initState() {
     super.initState();
+    _lifecycle = AppLifecycleListener(onResume: () => ref.read(sessionBootstrapProvider).onResumed());
     // Deep links: splitmate://join?groupId=…&code=…  (also accepts /join?code=…)
     _appLinks.getInitialLink().then((uri) {
       if (uri != null) _handleLink(uri);
@@ -41,6 +43,7 @@ class _SplitMateAppState extends ConsumerState<SplitMateApp> {
   @override
   void dispose() {
     _links?.cancel();
+    _lifecycle.dispose();
     super.dispose();
   }
 

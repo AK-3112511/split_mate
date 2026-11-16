@@ -71,7 +71,9 @@ class _BrutalSurfaceState extends State<BrutalSurface> {
       transform: Matrix4.translationValues(offset, offset, 0),
       padding: widget.padding,
       decoration: BoxDecoration(
-        color: widget.color ?? c.surface,
+        // Composite tints onto the opaque surface: the hard shadow is painted
+        // under the fill, so a translucent fill would let it show through black.
+        color: widget.color == null ? c.surface : Color.alphaBlend(widget.color!, c.surface),
         shape: widget.shape,
         borderRadius: isCircle ? null : widget.borderRadius,
         border: Border.all(color: c.ink, width: widget.borderWidth ?? Brutal.border),

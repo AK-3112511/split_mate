@@ -132,9 +132,11 @@ class _PersonalInfoScreenState extends ConsumerState<PersonalInfoScreen> {
           ],
         ),
       ),
+      // Lifted above the keyboard so Save stays reachable while typing.
       bottomNavigationBar: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(Space.gutter, Space.xs, Space.gutter, Space.sm),
+          padding: EdgeInsets.fromLTRB(
+              Space.gutter, Space.xs, Space.gutter, Space.sm + MediaQuery.viewInsetsOf(context).bottom),
           child: PrimaryButton(label: 'Save', icon: Icons.check_rounded, loading: _saving, onPressed: _save),
         ),
       ),
