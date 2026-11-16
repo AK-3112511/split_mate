@@ -2,6 +2,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../features/auth/data/auth_repository.dart';
+import '../../features/auth/data/is_seeding_provider.dart';
 import '../../features/groups/data/group_mirror_service.dart';
 import '../../features/notifications/data/notifications_repository.dart';
 import '../router/app_router.dart';
@@ -26,6 +27,9 @@ class SessionBootstrap {
       _done.clear();
       return;
     }
+    // Sign-up / first Google sign-in is still creating (or may undo) the
+    // account; run once it's done (see the seeding listener below).
+    if (_ref.read(isAuthSeedingProvider)) return;
     if (!isVerified(user) || _done.contains(user.uid)) return;
     _done.add(user.uid);
     _run(user);
@@ -65,5 +69,8 @@ final sessionBootstrapProvider = Provider<SessionBootstrap>((ref) {
   final b = SessionBootstrap(ref);
   ref.listen<AsyncValue<User?>>(authStateProvider, (_, next) => b.onAuthChanged(next.valueOrNull),
       fireImmediately: true);
+  ref.listen<bool>(isAuthSeedingProvider, (wasSeeding, seeding) {
+    if (wasSeeding == true && !seeding) b.onAuthChanged(ref.read(firebaseAuthProvider).currentUser);
+  });
   return b;
 });

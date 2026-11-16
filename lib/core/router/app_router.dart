@@ -50,6 +50,10 @@ String? _safeFrom(String? raw) {
   return decoded;
 }
 
+/// Locations worth restoring after sign-in: only `/join?code=…` invite links.
+bool isInviteLink(String? location) =>
+    location != null && Uri.tryParse(location)?.path == '/join';
+
 final routerProvider = Provider<GoRouter>((ref) {
   final refresh = _RouterRefresh(ref);
   ref.onDispose(refresh.dispose);
@@ -82,7 +86,11 @@ final routerProvider = Provider<GoRouter>((ref) {
       final user = auth.valueOrNull;
       if (user == null) {
         if (isAuthPage) return null;
-        return withFrom('/login', loc == '/splash' || loc == '/verify-email' ? from : here);
+        // Only an invite link survives signing in. Any other location is where
+        // the previous account was (after sign-out) and may not even be
+        // visible to whoever signs in next.
+        final target = loc == '/splash' || loc == '/verify-email' ? from : here;
+        return withFrom('/login', isInviteLink(target) ? target : null);
       }
       if (!isVerified(user)) {
         if (loc == '/verify-email') return null;

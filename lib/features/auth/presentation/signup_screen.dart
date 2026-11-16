@@ -85,24 +85,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
       builder: (ctx) => SheetBody(
         title: 'Terms & privacy, in short',
         children: [
-          for (final line in const [
-            'SplitMate helps you track expenses and split bills with friends. It never moves money for you.',
-            'Your personal expenses are visible only to you. Group expenses are visible to members of that group.',
-            'Friends see your name, photo, friend code and UPI ID (if you add one) — never your email.',
-            'Data is stored in Google Firebase. You can delete your expenses at any time.',
-            'Use SplitMate responsibly and only add people who agreed to share expenses with you.',
-          ])
-            Padding(
-              padding: const EdgeInsets.only(bottom: Space.sm),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(Icons.check_circle_rounded, size: 18, color: ctx.aurora.positive),
-                  const SizedBox(width: Space.xs),
-                  Expanded(child: Text(line, style: ctx.text.bodyMedium)),
-                ],
-              ),
-            ),
+          for (final line in termsSummary) TermsLine(line),
           const SizedBox(height: Space.sm),
           PrimaryButton(
             label: 'I agree',

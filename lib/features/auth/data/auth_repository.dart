@@ -101,8 +101,10 @@ class AuthRepository {
     }
   }
 
-  /// Returns false when the user cancelled the Google picker.
-  Future<bool> signInWithGoogle() async {
+  /// Returns false when the user cancelled the Google picker, or declined
+  /// [confirmNewUser] (asked only when this sign-in creates the account; the
+  /// new account is then deleted again before anything is written for it).
+  Future<bool> signInWithGoogle({Future<bool> Function()? confirmNewUser}) async {
     final account = await _googleSignIn.signIn();
     if (account == null) return false;
     final googleAuth = await account.authentication;
@@ -113,9 +115,21 @@ class AuthRepository {
     _ref.read(isAuthSeedingProvider.notifier).state = true;
     try {
       final result = await _auth.signInWithCredential(credential);
-      if (result.user != null) {
-        await ensureProfile(result.user!, displayName: account.displayName);
+      final user = result.user;
+      if (user == null) return false;
+      final isNew = result.additionalUserInfo?.isNewUser ?? false;
+      if (isNew && confirmNewUser != null && !await confirmNewUser()) {
+        try {
+          await user.delete();
+        } catch (_) {
+          await _auth.signOut();
+        }
+        try {
+          await _googleSignIn.signOut();
+        } catch (_) {}
+        return false;
       }
+      await ensureProfile(user, displayName: account.displayName);
       return true;
     } finally {
       _ref.read(isAuthSeedingProvider.notifier).state = false;

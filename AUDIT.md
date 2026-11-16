@@ -188,6 +188,8 @@ Severity: **P0** = wrong money / crash / security · **P1** = broken flow · **P
 | E-09 | P1 | Recurring instances back-filled on template save never mirrored to the payer's ledger until next launch (never if the group is deleted first) | groups/presentation/add_group_expense_screen.dart | ✅ |
 | E-10 | P2 | Recap copy: "0% less than September", "1 expenses" | recap/presentation/recap_screen.dart | ✅ |
 | E-11 | P2 | Last admin is offered "Leave group", then refused | groups/presentation/group_detail_screen.dart | ✅ |
+| E-12 | P1 | "Continue with Google" on the login screen creates a new account without accepting the Terms | auth/presentation/login_screen.dart, auth/data/auth_repository.dart, core/session/bootstrap.dart | ✅ |
+| E-13 | P1 | Sign-out location is restored for the next sign-in, even for another account (e.g. lands on someone else's group) | core/router/app_router.dart | ✅ |
 
 ## Security rules — manual verification matrix
 

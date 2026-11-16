@@ -2,9 +2,60 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:material_ui/material_ui.dart';
 import '../../../../core/theme/aurora_colors.dart';
 import '../../../../core/theme/tokens.dart';
+import '../../../../shared_widgets/buttons.dart';
 import '../../../../shared_widgets/cards.dart';
+import '../../../../shared_widgets/feedback.dart';
 import '../../../../shared_widgets/logo_mark.dart';
 import '../../../../shared_widgets/motion.dart';
+
+/// The short terms everyone accepts before an account is created.
+const List<String> termsSummary = [
+  'SplitMate helps you track expenses and split bills with friends. It never moves money for you.',
+  'Your personal expenses are visible only to you. Group expenses are visible to members of that group.',
+  'Friends see your name, photo, friend code and UPI ID (if you add one) — never your email.',
+  'Data is stored in Google Firebase. You can delete your expenses at any time.',
+  'Use SplitMate responsibly and only add people who agreed to share expenses with you.',
+];
+
+class TermsLine extends StatelessWidget {
+  final String text;
+  const TermsLine(this.text, {super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Space.sm),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(Icons.check_circle_rounded, size: 18, color: context.aurora.positive),
+          const SizedBox(width: Space.xs),
+          Expanded(child: Text(text, style: context.text.bodyMedium)),
+        ],
+      ),
+    );
+  }
+}
+
+/// Terms for someone whose account is being created outside the sign-up
+/// screen (a first "Continue with Google" from login). True only on "I agree".
+Future<bool> askToAcceptTerms(BuildContext context) async {
+  final agreed = await showAppSheet<bool>(
+    context,
+    builder: (ctx) => SheetBody(
+      title: 'New to SplitMate?',
+      subtitle: 'Accept the terms to create your account.',
+      children: [
+        for (final line in termsSummary) TermsLine(line),
+        const SizedBox(height: Space.sm),
+        PrimaryButton(label: 'I agree', onPressed: () => Navigator.of(ctx).pop(true)),
+        const SizedBox(height: Space.xs),
+        SecondaryButton(label: 'Not now', onPressed: () => Navigator.of(ctx).pop(false)),
+      ],
+    ),
+  );
+  return agreed ?? false;
+}
 
 final RegExp emailPattern = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]{2,}$');
 

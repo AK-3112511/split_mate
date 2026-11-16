@@ -56,7 +56,11 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _error = null;
     });
     try {
-      await ref.read(authRepositoryProvider).signInWithGoogle();
+      // A first-time Google user creates an account here, so they must
+      // accept the terms just like on the sign-up screen.
+      await ref.read(authRepositoryProvider).signInWithGoogle(
+            confirmNewUser: () async => mounted && await askToAcceptTerms(context),
+          );
     } catch (e) {
       if (mounted) setState(() => _error = friendlyError(e));
     } finally {

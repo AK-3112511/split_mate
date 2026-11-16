@@ -15,7 +15,7 @@
 | 4 | Design system — tokens, light/dark theme, components, motion | ✅ 2026-11-15 |
 | 5 | Screen redesign + approved removals | ✅ 2026-11-15 |
 | 6 | New features — budgets, UPI, search & details, recap & export | ✅ 2026-11-15 |
-| 7 | Verification — analyze, tests, rules, manual E2E, release build | 🟡 E2E done on device except sign-up / verification / forgot password / Google sign-in |
+| 7 | Verification — analyze, tests, rules, manual E2E, release build | ✅ full manual E2E checklist done on device 2026-11-16 (rules matrix R1–R13 only partly exercised; emulator needs Java) |
 
 ## Phase log
 
@@ -90,7 +90,7 @@
 - [x] `flutter test` → **72 passed** (money, split calculator, settlement & pairwise, recurrence, mirror decisions, home/recap stats, model back-compat, CSV, widget tests for login + themes)
 - [x] Android build config upgraded for Flutter 3.50 (Gradle 9.5.0, AGP 9.3.1, Kotlin 2.4.20, Java 17) — v1 config no longer built on this SDK
 - [x] `flutter build apk --debug` ✅ and `--release` ✅ (`build/app/outputs/flutter-apk/app-release.apk`, 63.7 MB). Added `kotlin.incremental=false` (Windows cross-drive Kotlin cache bug).
-- [x] Manual E2E checklist on a device (below) — done on the USB phone except the 3 sign-up / email / Google items
+- [x] Manual E2E checklist on a device (below) — all items done on the USB phone
 - [x] Deployed `firestore.rules` to `splitmate-6b600` — compiled and released successfully (added `firestore` target to `firebase.json` + `.firebaserc`)
 
 ### v2.1 — "Pop Brutal" redesign (UI/UX Pro Max) — ✅ 2026-11-16
@@ -166,13 +166,20 @@ Test group **TEST R2** (created by B, A invited) plus a solo **TEST Solo** for a
 
 **Note:** an extra tap during the recap test opened Google Lens with B's recap image from the share sheet (B's test data only; nothing was sent to any person).
 
+### Auth flows — ✅ 2026-11-16 (you drove sign-up, inbox and Google; I watched screen + logs)
+**Verified working:** sign-up refuses without Terms; one verification email; after verifying, the app continues into the app; forgot-password email arrives; Google sign-in works with the debug-key SHA-1 registered in Firebase (`6B:73:1A…`).
+
+**Bugs found and fixed:**
+1. **Google sign-in on the login screen skipped the Terms** for a first-time user (the earlier fix only covered the sign-up screen). A brand-new Google user now gets a "New to SplitMate?" terms sheet; "Not now" deletes the just-created auth user before anything is written. The session bootstrap now waits until sign-up/Google seeding finishes, so it can't create a profile for an account that's being undone (also removes a race with sign-in's own profile seeding). Verified on device: Not now → stays on login, no account; I agree → account with friend code, Home.
+2. **After sign-out, the next sign-in (even another account) reopened the previous account's screen** (`/login?from=…` kept the sign-out location, e.g. someone else's group). Only invite links (`/join?code=…`) are kept now. Verified on device: sign out from Profile → sign in → Home. Unit test `test/core/invite_link_test.dart`.
+
 ## Manual end-to-end checklist (Phase 7)
 
 Two test accounts (A, B) on an Android emulator.
 
-- [ ] Signup → verification email (once) → verify → home
-- [ ] Forgot password email arrives
-- [ ] Login with Google (terms respected)
+- [x] Signup → verification email (once) → verify → home
+- [x] Forgot password email arrives
+- [x] Login with Google (terms respected)
 - [x] A adds B by code → B accepts → both see each other; mutual request auto-accepts
 - [x] A creates group with B invited → B accepts → A opens group
 - [x] Join by code (lowercase works) and by deep link while logged out
