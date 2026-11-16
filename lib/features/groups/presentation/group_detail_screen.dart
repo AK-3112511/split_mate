@@ -317,6 +317,20 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> with Sing
   }
 
   Future<void> _leave(BuildContext context, GroupModel group, String me, GroupBalances? balances) async {
+    // Say it up front instead of offering "Leave" and then refusing.
+    final othersLeft = group.members.any((m) => m != me);
+    final otherAdmins = group.activeAdmins.any((a) => a != me);
+    if (group.isAdmin(me) && othersLeft && !otherAdmins) {
+      await confirmAction(
+        context,
+        title: 'Make someone else an admin first',
+        message: 'You\'re the only admin of ${group.name}. Open Members, make another member an admin, then leave.',
+        confirmLabel: 'OK',
+        icon: Icons.admin_panel_settings_rounded,
+        showCancel: false,
+      );
+      return;
+    }
     final net = balances?.myNet(me) ?? 0;
     final warning = Money.isZero(net)
         ? 'You can rejoin later with the group code.'

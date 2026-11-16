@@ -158,15 +158,19 @@ class _RecapScreenState extends ConsumerState<RecapScreen> {
   List<Widget> _pages(BuildContext context, RecapStats s) {
     final change = s.change;
     final top = s.topCategory;
+    final pct = change == null ? null : (change.abs() * 100).round();
+    final prevMonth = Dates.monthName(DateTime(s.month.year, s.month.month - 1));
     return [
       _Story(
         color: Palette.yellow,
         icon: Icons.payments_rounded,
         kicker: 'In ${Dates.monthName(s.month)} you spent',
         hero: AmountText(s.total, animate: true, style: context.text.displayLarge?.copyWith(color: Palette.ink)),
-        caption: change == null
-            ? 'across ${s.count} expenses'
-            : '${(change.abs() * 100).round()}% ${change > 0 ? 'more' : 'less'} than ${Dates.monthName(DateTime(s.month.year, s.month.month - 1))} · ${s.count} expenses',
+        caption: pct == null
+            ? 'across ${expenseCount(s.count)}'
+            : pct == 0
+                ? 'Same as $prevMonth · ${expenseCount(s.count)}'
+                : '$pct% ${change! > 0 ? 'more' : 'less'} than $prevMonth · ${expenseCount(s.count)}',
       ),
       if (top != null)
         _Story(
@@ -281,7 +285,7 @@ class _SummaryCard extends StatelessWidget {
                 Text('My ${Dates.monthYear(stats.month)}', style: context.text.titleLarge?.copyWith(color: ink)),
                 const SizedBox(height: Space.md),
                 Text(Money.format(stats.total), style: context.text.displayMedium?.copyWith(color: ink, fontFeatures: AppTheme.tabular)),
-                Text('spent · ${stats.count} expenses · ${Money.format(stats.perDay)}/day',
+                Text('spent · ${expenseCount(stats.count)} · ${Money.format(stats.perDay)}/day',
                     style: context.text.bodyMedium?.copyWith(color: ink)),
                 const SizedBox(height: Space.lg),
                 for (final t in stats.byCategory.take(4))
@@ -325,3 +329,6 @@ class _SummaryCard extends StatelessWidget {
     );
   }
 }
+
+/// "1 expense", "3 expenses".
+String expenseCount(int n) => n == 1 ? '1 expense' : '$n expenses';

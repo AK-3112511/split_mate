@@ -15,7 +15,7 @@
 | 4 | Design system — tokens, light/dark theme, components, motion | ✅ 2026-11-15 |
 | 5 | Screen redesign + approved removals | ✅ 2026-11-15 |
 | 6 | New features — budgets, UPI, search & details, recap & export | ✅ 2026-11-15 |
-| 7 | Verification — analyze, tests, rules, manual E2E, release build | 🟡 single- and two-account E2E done on device; offline + sign-up flows pending |
+| 7 | Verification — analyze, tests, rules, manual E2E, release build | 🟡 E2E done on device except sign-up / verification / forgot password / Google sign-in |
 
 ## Phase log
 
@@ -90,7 +90,7 @@
 - [x] `flutter test` → **72 passed** (money, split calculator, settlement & pairwise, recurrence, mirror decisions, home/recap stats, model back-compat, CSV, widget tests for login + themes)
 - [x] Android build config upgraded for Flutter 3.50 (Gradle 9.5.0, AGP 9.3.1, Kotlin 2.4.20, Java 17) — v1 config no longer built on this SDK
 - [x] `flutter build apk --debug` ✅ and `--release` ✅ (`build/app/outputs/flutter-apk/app-release.apk`, 63.7 MB). Added `kotlin.incremental=false` (Windows cross-drive Kotlin cache bug).
-- [ ] Manual E2E checklist on a device (below) — no emulator/device on this machine, Firebase is Android-only, so this needs a phone
+- [x] Manual E2E checklist on a device (below) — done on the USB phone except the 3 sign-up / email / Google items
 - [x] Deployed `firestore.rules` to `splitmate-6b600` — compiled and released successfully (added `firestore` target to `firebase.json` + `.firebaserc`)
 
 ### v2.1 — "Pop Brutal" redesign (UI/UX Pro Max) — ✅ 2026-11-16
@@ -154,6 +154,18 @@ Checks: analyze clean, **85 tests pass** (new: `test/core/firestore_helper_test.
 - Verified on device (release APK); analyze clean, 79 tests pass.
 - **Splash v2 (about 5.4s, on request):** the two coin halves fly in spinning from opposite corners, click into one coin (haptic, bump, double shockwave, pop-colour sparks), flip like a coin toss, land in the logo tile, re-split into the logo, then the wordmark letters bounce in and the tagline sticker pops. An ink progress bar runs the full length. A doubled-coin glitch during the tile hand-off was spotted on the phone and fixed. Installed and verified on device.
 
+### Two-account round 2 — ✅ 2026-11-16 (same phone, A = your account, B = "qwer")
+Test group **TEST R2** (created by B, A invited) plus a solo **TEST Solo** for a fix check; all test groups, A's mirrored entries, A's test notifications and the A↔B friendship were removed afterwards (A: spent ₹150, owed ₹100, owe ₹0, 2 friends; a search for "TEST" finds nothing).
+
+**Verified working:** group invite → Invitations card → Join opens the group; accepting a friend request / invite marks its notification read (E-07 now seen on device); Exact split with live meter; creditor "Received" then edit → settled mark and date kept, history entry added; edit removes a member → that member shows "—", group settles to 0; delete expense → payer's mirror gone, involved members notified (uninvolved members correctly aren't); monthly recurring from 31 Aug → 31 Aug / 30 Sep / 31 Oct, no duplicates after the second member's sign-in ran the engine; debtor's mirrors appear on their original dates after settling; non-admins get no remove option; admin removing a member with a balance gets the ₹ warning; last admin can't leave; notification routing (edited expense → group, deleted group → "nothing to open"); mark all read clears the badge; clear all → "You're all caught up"; recap share sheet; CSV and PDF export (`SplitMate_All_time.csv/.pdf`); airplane mode → "Expense added — will sync when you're online", total updates at once, no write errors after reconnecting (the server copy itself can't be inspected from the app).
+
+**Bugs found and fixed:**
+1. **Recurring instances missing from the payer's ledger** until the next app launch (and never if the group was deleted first): the engine run after saving a template wrote instances but no mirrors. The incremental mirror scan now runs right after it. Verified on device: 3 back-filled shares appear immediately.
+2. Recap said **"0% less than September"** and **"1 expenses"** → "Same as September", "1 expense" (also on the share card). Verified on device.
+3. Last admin tapping Leave saw a "Leave group" button that then failed → now says "Make someone else an admin first" up front.
+
+**Note:** an extra tap during the recap test opened Google Lens with B's recap image from the share sheet (B's test data only; nothing was sent to any person).
+
 ## Manual end-to-end checklist (Phase 7)
 
 Two test accounts (A, B) on an Android emulator.
@@ -162,19 +174,19 @@ Two test accounts (A, B) on an Android emulator.
 - [ ] Forgot password email arrives
 - [ ] Login with Google (terms respected)
 - [x] A adds B by code → B accepts → both see each other; mutual request auto-accepts
-- [ ] A creates group with B invited → B accepts → A opens group
+- [x] A creates group with B invited → B accepts → A opens group
 - [x] Join by code (lowercase works) and by deep link while logged out
-- [ ] Add expense: Equal / Exact / Percent / Itemized; live "left to assign" meter
-- [ ] Edit expense (remove a member) → balances sum to 0; date & settled flags kept
-- [ ] Delete expense → mirrors hidden; members notified
+- [x] Add expense: Equal / Exact / Percent / Itemized; live "left to assign" meter
+- [x] Edit expense (remove a member) → balances sum to 0; date & settled flags kept
+- [x] Delete expense → mirrors hidden; members notified
 - [x] Balances tab pairwise; Pay via UPI opens UPI app → Record payment → confetti
 - [x] Mirrors appear in both personal ledgers with original dates & categories
-- [ ] Recurring monthly template on 31st → instances clamp to month end; no duplicates across A & B
-- [ ] Budget 80% / 100% alerts
-- [ ] Search finds personal + group expenses; detail sheet edit/delete
-- [ ] Monthly recap shares as image; CSV + PDF export open
-- [ ] Theme: System / Light / Dark persists across restart
-- [ ] Airplane mode: add expense → "Saved — will sync" → syncs later
+- [x] Recurring monthly template on 31st → instances clamp to month end; no duplicates across A & B
+- [x] Budget 80% / 100% alerts
+- [x] Search finds personal + group expenses; detail sheet edit/delete
+- [x] Monthly recap shares as image; CSV + PDF export open
+- [x] Theme: System / Light / Dark persists across restart
+- [x] Airplane mode: add expense → "Saved — will sync" → syncs later
 - [x] Logout A → login B: no stale A data anywhere
-- [ ] Notifications: each type routes correctly; mark all read; clear
-- [ ] Remove member with balance → warning; last admin cannot leave
+- [x] Notifications: each type routes correctly; mark all read; clear
+- [x] Remove member with balance → warning; last admin cannot leave

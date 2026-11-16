@@ -185,6 +185,9 @@ Severity: **P0** = wrong money / crash / security · **P1** = broken flow · **P
 | E-06 | P2 | "Pay via UPI" label wraps to two lines | groups/presentation/tabs/balances_tab.dart | ✅ |
 | E-07 | P2 | Friend-request notification stays unread after accepting from the Friends tab (same for group invites from Groups, and for a mutual request auto-accept) | friends_screen.dart, group_list_screen.dart, notifications_repository.dart | ✅ |
 | E-08 | P2 | Back on Personal info silently discards unsaved edits → now asks "Discard changes?" | profile/presentation/personal_info_screen.dart | ✅ |
+| E-09 | P1 | Recurring instances back-filled on template save never mirrored to the payer's ledger until next launch (never if the group is deleted first) | groups/presentation/add_group_expense_screen.dart | ✅ |
+| E-10 | P2 | Recap copy: "0% less than September", "1 expenses" | recap/presentation/recap_screen.dart | ✅ |
+| E-11 | P2 | Last admin is offered "Leave group", then refused | groups/presentation/group_detail_screen.dart | ✅ |
 
 ## Security rules — manual verification matrix
 

@@ -27,6 +27,7 @@ import '../../categories/domain/category_model.dart';
 import '../../categories/domain/category_resolver.dart';
 import '../../friends/data/friends_repository.dart';
 import '../data/group_expenses_repository.dart';
+import '../data/group_mirror_service.dart';
 import '../data/groups_repository.dart';
 import '../domain/group_expense_model.dart';
 import '../domain/group_model.dart';
@@ -251,7 +252,13 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
       final uid = ref.read(currentUidProvider);
       if (isTemplate && uid != null) {
         final engine = ref.read(recurringEngineProvider);
-        runInBackground(() => engine.run(uid), label: 'recurring after group save');
+        final mirrors = ref.read(mirrorServiceProvider);
+        // Back-filled instances must reach the payer's ledger now, not at the
+        // next launch (and never, if the group is deleted before then).
+        runInBackground(() async {
+          await engine.run(uid);
+          await mirrors.scanAll();
+        }, label: 'recurring after group save');
       }
       Haptics.success();
       if (mounted) context.popOrGo('/groups/${group.groupId}');
