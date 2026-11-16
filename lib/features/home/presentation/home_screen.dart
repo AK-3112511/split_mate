@@ -260,7 +260,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           child: EmptyState(
             compact: true,
             icon: Icons.event_busy_rounded,
-            title: 'No expenses in ${range.label.toLowerCase() == 'today' ? 'today' : range.label}',
+            title: switch (range.kind) {
+              RangeKind.all => 'No expenses yet',
+              RangeKind.today => 'No expenses today',
+              _ => 'No expenses in ${range.label}',
+            },
             message: 'Try another range or add one now.',
             actionLabel: 'Add expense',
             onAction: () => context.push('/expense/new'),
@@ -274,6 +278,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget _filters(BuildContext context, List<CategoryModel> cats) {
     final c = context.aurora;
     final chips = <Widget>[
+      ChoiceChipX(label: 'All time', selected: _kind == RangeKind.all, onTap: () => setState(() => _kind = RangeKind.all)),
       ChoiceChipX(label: 'Today', selected: _kind == RangeKind.today, onTap: () => setState(() => _kind = RangeKind.today)),
       ChoiceChipX(label: 'This week', selected: _kind == RangeKind.week, onTap: () => setState(() => _kind = RangeKind.week)),
       ChoiceChipX(label: 'This month', selected: _kind == RangeKind.month, onTap: () => setState(() => _kind = RangeKind.month)),

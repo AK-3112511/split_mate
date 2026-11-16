@@ -152,7 +152,7 @@ Checks: analyze clean, **85 tests pass** (new: `test/core/firestore_helper_test.
 - **Splash** (`features/auth/presentation/splash_screen.dart`), about 1.9s: the tile drops in with an elastic bounce, the coin splits apart (with a haptic) while an ink ring ripples out, the "SplitMate" letters bounce up one by one, and the "Split bills. Stay friends." sticker fades in. The router waits for `splashDoneProvider`, so the animation always finishes; deep links are kept in `?from=`. Under reduce-motion it's skipped.
 - Native Android launch background and Android 12+ splash colour changed to brand yellow (`values/colors.xml`), so there's no flash before the animation.
 - Verified on device (release APK); analyze clean, 79 tests pass.
-- **Splash v2 (about 5.4s, on request):** the two coin halves fly in spinning from opposite corners, click into one coin (haptic, bump, double shockwave, pop-colour sparks), flip like a coin toss, land in the logo tile, re-split into the logo, then the wordmark letters bounce in and the tagline sticker pops. An ink progress bar runs the full length. A doubled-coin glitch during the tile hand-off was spotted on the phone and fixed. Installed and verified on device.
+- **Splash v2 (about 5.4s, on request):** the two coin halves fly in spinning from opposite corners, click into one coin (haptic, bump, double shockwave, pop-colour sparks), flip like a coin toss, land in the logo tile, re-split into the logo, then the wordmark letters bounce in and the tagline sticker pops. (The bottom progress bar was removed later on request.) A doubled-coin glitch during the tile hand-off was spotted on the phone and fixed. Installed and verified on device.
 
 ### Two-account round 2 — ✅ 2026-11-16 (same phone, A = your account, B = "qwer")
 Test group **TEST R2** (created by B, A invited) plus a solo **TEST Solo** for a fix check; all test groups, A's mirrored entries, A's test notifications and the A↔B friendship were removed afterwards (A: spent ₹150, owed ₹100, owe ₹0, 2 friends; a search for "TEST" finds nothing).
@@ -172,6 +172,11 @@ Test group **TEST R2** (created by B, A invited) plus a solo **TEST Solo** for a
 **Bugs found and fixed:**
 1. **Google sign-in on the login screen skipped the Terms** for a first-time user (the earlier fix only covered the sign-up screen). A brand-new Google user now gets a "New to SplitMate?" terms sheet; "Not now" deletes the just-created auth user before anything is written. The session bootstrap now waits until sign-up/Google seeding finishes, so it can't create a profile for an account that's being undone (also removes a race with sign-in's own profile seeding). Verified on device: Not now → stays on login, no account; I agree → account with friend code, Home.
 2. **After sign-out, the next sign-in (even another account) reopened the previous account's screen** (`/login?from=…` kept the sign-out location, e.g. someone else's group). Only invite links (`/join?code=…`) are kept now. Verified on device: sign out from Profile → sign in → Home. Unit test `test/core/invite_link_test.dart`.
+
+### UI tweaks — ✅ 2026-11-16 (on request)
+- Splash: removed the moving progress bar at the bottom; the rest of the animation is unchanged.
+- Profile: removed the "SplitMate 2.0 · Made with 💜" footer.
+- Home: new **All time** range chip in front of Today / This week / This month / Custom (labelled "All time" so it isn't confused with the category row's "All"). Empty state reads "No expenses yet". Verified on device.
 
 ## Manual end-to-end checklist (Phase 7)
 

@@ -14,7 +14,6 @@ final splashDoneProvider = StateProvider<bool>((ref) => false);
 ///  3. The coin flips once (a coin toss).
 ///  4. The logo tile pops in behind it; the coin eases back into the split logo.
 ///  5. "SplitMate" bounces in letter by letter, then the tagline sticker.
-///  A chunky ink progress bar fills along the bottom the whole time.
 class SplashScreen extends ConsumerStatefulWidget {
   const SplashScreen({super.key});
 
@@ -272,29 +271,6 @@ class _SplashScreenState extends ConsumerState<SplashScreen> with SingleTickerPr
                           );
                         }),
                       ],
-                    ),
-                  ),
-                ),
-                // Chunky progress bar.
-                Positioned(
-                  left: 48,
-                  right: 48,
-                  bottom: 56 + MediaQuery.paddingOf(context).bottom,
-                  child: Container(
-                    height: 14,
-                    decoration: BoxDecoration(
-                      color: Palette.paper,
-                      borderRadius: Radii.round,
-                      border: Border.all(color: Palette.ink, width: 2.5),
-                      boxShadow: const [BoxShadow(color: Palette.ink, offset: Offset(3, 3))],
-                    ),
-                    child: ClipRRect(
-                      borderRadius: Radii.round,
-                      child: FractionallySizedBox(
-                        alignment: Alignment.centerLeft,
-                        widthFactor: Curves.easeInOut.transform(_c.value),
-                        child: Container(color: Palette.ink),
-                      ),
                     ),
                   ),
                 ),

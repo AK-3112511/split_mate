@@ -199,7 +199,6 @@ class ProfileScreen extends ConsumerWidget {
                 ),
               ),
               const SizedBox(height: Space.lg),
-              Center(child: Text('SplitMate 2.0 · Made with 💜', style: context.text.bodySmall)),
             ],
           ),
         ),

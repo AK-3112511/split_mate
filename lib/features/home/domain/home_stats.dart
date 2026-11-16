@@ -4,7 +4,7 @@ import '../../categories/domain/category_model.dart';
 import '../../categories/domain/category_resolver.dart';
 import '../../personal_expenses/domain/expense_model.dart';
 
-enum RangeKind { today, week, month, custom }
+enum RangeKind { all, today, week, month, custom }
 
 /// A half-open date range [start, end).
 class DateRange {
@@ -16,6 +16,9 @@ class DateRange {
   factory DateRange.of(RangeKind kind, {DateTime? now, DateTime? from, DateTime? to}) {
     final n = now ?? DateTime.now();
     switch (kind) {
+      case RangeKind.all:
+        // Everything ever recorded (the app doesn't allow future dates).
+        return DateRange(kind, DateTime(2000), DateTime(n.year + 100));
       case RangeKind.today:
         return DateRange(kind, Dates.startOfDay(n), Dates.endOfDayExclusive(n));
       case RangeKind.week:
@@ -36,6 +39,8 @@ class DateRange {
 
   String get label {
     switch (kind) {
+      case RangeKind.all:
+        return 'All time';
       case RangeKind.today:
         return 'Today';
       case RangeKind.week:

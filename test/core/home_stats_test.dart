@@ -34,6 +34,13 @@ void main() {
       expect(month.contains(DateTime(2026, 12, 1)), isFalse);
     });
 
+    test('all time includes old and recent expenses', () {
+      final all = DateRange.of(RangeKind.all, now: now);
+      expect(all.label, 'All time');
+      expect(all.contains(DateTime(2015, 1, 1)), isTrue);
+      expect(all.contains(DateTime(2026, 11, 15, 23, 59)), isTrue);
+    });
+
     test('custom range swaps reversed dates and includes the last day', () {
       final r = DateRange.of(RangeKind.custom, from: DateTime(2026, 11, 20), to: DateTime(2026, 11, 10));
       expect(r.contains(DateTime(2026, 11, 10, 8)), isTrue);
