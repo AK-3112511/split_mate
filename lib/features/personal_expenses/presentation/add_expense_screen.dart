@@ -1,769 +1,519 @@
-import 'dart:convert';
-import 'package:flutter/material.dart';
+import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
-import 'package:intl/intl.dart';
-import 'package:uuid/uuid.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../core/utils/category_helper.dart';
+import 'package:material_ui/material_ui.dart';
+import '../../../core/domain/recurrence.dart';
+import '../../../core/router/app_router.dart';
+import '../../../core/theme/aurora_colors.dart';
+import '../../../core/theme/tokens.dart';
+import '../../../core/utils/dates.dart';
+import '../../../core/utils/haptics.dart';
+import '../../../core/utils/image_codec.dart';
+import '../../../core/utils/money.dart';
+import '../../../core/utils/recurring_engine.dart';
+import '../../../core/utils/write_helper.dart';
+import '../../../shared_widgets/bits.dart';
+import '../../../shared_widgets/buttons.dart';
+import '../../../shared_widgets/cards.dart';
+import '../../../shared_widgets/feedback.dart';
+import '../../../shared_widgets/inputs.dart';
+import '../../../shared_widgets/motion.dart';
+import '../../../shared_widgets/receipt_viewer.dart';
+import '../../../shared_widgets/states.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../categories/data/categories_repository.dart';
 import '../../categories/domain/category_model.dart';
+import '../../categories/domain/category_resolver.dart';
+import '../../categories/presentation/category_editor_sheet.dart';
+import '../../home/domain/home_stats.dart';
+import '../../receipts/data/receipts_repository.dart';
 import '../data/expense_repository.dart';
 import '../domain/expense_model.dart';
-import '../../../core/utils/recurring_engine.dart';
 
+/// Add a personal expense / recurring template, or edit one ([editId]).
 class AddExpenseScreen extends ConsumerStatefulWidget {
-  final String? editExpenseId;
-  const AddExpenseScreen({super.key, this.editExpenseId});
+  final String? editId;
+  final bool startRecurring;
+  const AddExpenseScreen({super.key, this.editId, this.startRecurring = false});
 
   @override
   ConsumerState<AddExpenseScreen> createState() => _AddExpenseScreenState();
 }
 
 class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _amountController = TextEditingController();
-  final _descriptionController = TextEditingController();
-  
-  String? _selectedCategoryId;
-  DateTime _selectedDate = DateTime.now();
-  bool _isLoading = false;
-  String? _errorMessage;
+  final _form = GlobalKey<FormState>();
+  final _amount = TextEditingController();
+  final _desc = TextEditingController();
+  final _notes = TextEditingController();
 
+  ExpenseModel? _editing;
   bool _initialized = false;
-  bool _isRecurring = false;
-  String _recurrenceInterval = 'weekly';
-  String? _receiptUrl;
+  String? _categoryId;
+  DateTime _date = DateTime.now();
+  bool _recurring = false;
+  RecurrenceInterval _interval = RecurrenceInterval.monthly;
+  EncodedImage? _newReceipt;
+  Uint8List? _newReceiptBytes;
+  bool _removeReceipt = false;
+  bool _showNotes = false;
+  bool _saving = false;
+
+  bool get _isEdit => widget.editId != null;
 
   @override
   void initState() {
     super.initState();
-    if (widget.editExpenseId != null) {
-      _loadExpenseDetails();
-    }
-  }
-
-  Future<void> _loadExpenseDetails() async {
-    final uid = ref.read(firebaseAuthProvider).currentUser?.uid;
-    if (uid == null) return;
-    try {
-      final doc = await FirebaseFirestore.instance
-          .collection('users')
-          .doc(uid)
-          .collection('expenses')
-          .doc(widget.editExpenseId)
-          .get();
-      if (doc.exists && mounted) {
-        final expense = ExpenseModel.fromMap(doc.data()!, doc.id);
-        setState(() {
-          _amountController.text = expense.amount.toStringAsFixed(2);
-          _descriptionController.text = expense.description;
-          _selectedCategoryId = expense.category;
-          _selectedDate = expense.createdAt;
-          _receiptUrl = expense.receiptUrl;
-          _isRecurring = expense.isRecurringTemplate;
-          _recurrenceInterval = expense.recurrenceInterval ?? 'weekly';
-          _initialized = true;
-        });
-      }
-    } catch (_) {}
+    _recurring = widget.startRecurring;
   }
 
   @override
   void dispose() {
-    _amountController.dispose();
-    _descriptionController.dispose();
+    _amount.dispose();
+    _desc.dispose();
+    _notes.dispose();
     super.dispose();
   }
 
-  Future<void> _pickReceiptImage(ImageSource source) async {
-    try {
-      final picker = ImagePicker();
-      final picked = await picker.pickImage(
-        source: source,
-        maxWidth: 800,
-        maxHeight: 800,
-        imageQuality: 70,
-      );
-      if (picked == null) return;
+  void _initFrom(ExpenseModel e, List<CategoryModel> cats) {
+    _editing = e;
+    _amount.text = Money.plain(e.amount);
+    _desc.text = e.description;
+    _notes.text = e.notes ?? '';
+    _showNotes = _notes.text.isNotEmpty;
+    _categoryId = CategoryResolver.resolve(id: e.categoryId, name: e.categoryName, categories: cats).id;
+    _date = e.date;
+    _recurring = e.isRecurringTemplate;
+    _interval = e.interval ?? RecurrenceInterval.monthly;
+    _initialized = true;
+  }
 
-      final bytes = await picked.readAsBytes();
-      final base64String = base64Encode(bytes);
+  Future<void> _pickReceipt(ImageSource source) async {
+    try {
+      final img = await ImageCodec.pick(source: source);
+      if (img == null || !mounted) return;
       setState(() {
-        _receiptUrl = 'data:image/jpeg;base64,$base64String';
+        _newReceipt = img;
+        _newReceiptBytes = ImageCodec.decode(img.base64);
+        _removeReceipt = false;
       });
     } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to attach image: $e'), backgroundColor: AppTheme.semanticNegative),
-        );
-      }
+      Toast.error(e);
     }
   }
 
-  Future<void> _selectDate(BuildContext context) async {
-    final DateTime? picked = await showDatePicker(
-      context: context,
-      initialDate: _selectedDate,
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2101),
-      builder: (context, child) {
-        return Theme(
-          data: Theme.of(context).copyWith(
-            colorScheme: const ColorScheme.dark(
-              primary: AppTheme.accent,
-              onPrimary: Colors.black,
-              surface: AppTheme.surfaceCard,
-              onSurface: AppTheme.textPrimary,
-            ),
-            dialogTheme: const DialogThemeData(
-              backgroundColor: AppTheme.surfaceBase,
-            ),
+  void _chooseReceiptSource() {
+    showAppSheet<void>(
+      context,
+      builder: (ctx) => SheetBody(
+        title: 'Add a receipt',
+        children: [
+          ListTile(
+            leading: const IconBadge(Icons.photo_camera_rounded, size: 40),
+            title: const Text('Take a photo'),
+            onTap: () {
+              Navigator.of(ctx).pop();
+              _pickReceipt(ImageSource.camera);
+            },
           ),
-          child: child!,
-        );
-      },
+          ListTile(
+            leading: const IconBadge(Icons.photo_library_rounded, size: 40),
+            title: const Text('Choose from gallery'),
+            onTap: () {
+              Navigator.of(ctx).pop();
+              _pickReceipt(ImageSource.gallery);
+            },
+          ),
+        ],
+      ),
     );
-    if (picked != null && picked != _selectedDate) {
-      setState(() {
-        _selectedDate = picked;
-      });
-    }
   }
 
-  Future<void> _handleSave() async {
-    if (!_formKey.currentState!.validate()) return;
-    
-    if (_selectedCategoryId == null) {
-      setState(() {
-        _errorMessage = 'Please select a category';
-      });
-      return;
-    }
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _date.isAfter(now) && !_recurring ? now : _date,
+      firstDate: DateTime(2015),
+      // Expenses can't be in the future; recurring templates may start later.
+      lastDate: _recurring ? DateTime(now.year + 1, now.month, now.day) : now,
+    );
+    if (picked != null) setState(() => _date = Dates.withTimeOf(picked, DateTime.now()));
+  }
 
-    final double? amount = double.tryParse(_amountController.text.trim());
-    if (amount == null || amount <= 0) {
-      setState(() {
-        _errorMessage = 'Please enter a valid amount greater than 0';
-      });
-      return;
-    }
+  Future<void> _save(List<CategoryModel> cats) async {
+    FocusScope.of(context).unfocus();
+    if (!_form.currentState!.validate()) return;
+    final amount = Money.parse(_amount.text).value!;
+    final category = cats.firstWhere((c) => c.id == _categoryId, orElse: () => CategoryModel.others);
+    final repo = ref.read(expenseRepositoryProvider);
+    final now = DateTime.now();
+    final date = Dates.isSameDay(_date, now) && !_isEdit ? now : _date;
 
-    setState(() {
-      _isLoading = true;
-      _errorMessage = null;
-    });
-
+    setState(() => _saving = true);
     try {
-      final categories = ref.read(userCategoriesProvider).value ?? [];
-      final resolvedCat = CategoryHelper.resolveCategory(_selectedCategoryId!, categories);
-      final categoryValue = resolvedCat.name.isNotEmpty ? resolvedCat.name : _selectedCategoryId!;
-
-      final expense = ExpenseModel(
-        id: widget.editExpenseId ?? const Uuid().v4(),
-        amount: amount,
-        category: categoryValue,
-        description: _descriptionController.text.trim(),
-        createdAt: _selectedDate,
-        receiptUrl: _receiptUrl,
-        isRecurringTemplate: _isRecurring,
-        recurrenceInterval: _isRecurring ? _recurrenceInterval : null,
-        lastGeneratedDate: null,
-        isCancelled: false,
-      );
-
-      if (widget.editExpenseId != null) {
-        await ref.read(expenseRepositoryProvider).updateExpense(widget.editExpenseId!, expense);
+      final before = (ref.read(personalExpensesProvider).valueOrNull ?? const <ExpenseModel>[])
+          .where((e) => e.id != _editing?.id)
+          .toList();
+      WriteOutcome outcome;
+      if (_editing == null) {
+        final expense = ExpenseModel(
+          id: repo.newId(),
+          amount: amount,
+          categoryId: category.id,
+          categoryName: category.name,
+          description: _desc.text.trim(),
+          notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
+          date: date,
+          createdAt: now,
+          isRecurringTemplate: _recurring,
+          recurrenceInterval: _recurring ? _interval.key : null,
+        );
+        outcome = await repo.add(expense, receipt: _newReceipt);
       } else {
-        await ref.read(expenseRepositoryProvider).addExpense(expense);
+        final updated = _editing!.copyWith(
+          amount: amount,
+          categoryId: category.id,
+          categoryName: category.name,
+          description: _desc.text.trim(),
+          notes: _notes.text.trim(),
+          date: date,
+          recurrenceInterval: _editing!.isRecurringTemplate ? _interval.key : null,
+        );
+        outcome = await repo.update(updated, newReceipt: _newReceipt, removeReceipt: _removeReceipt);
       }
 
-      if (_isRecurring) {
-        await processRecurringTemplates(ref);
+      final uid = ref.read(currentUidProvider);
+      if (_recurring && uid != null) {
+        final engine = ref.read(recurringEngineProvider);
+        runInBackground(() => engine.run(uid), label: 'recurring after save');
       }
-
-      if (mounted) {
-        context.pop();
+      final alert = _recurring
+          ? null
+          : HomeStats.budgetAlert(before: before, category: category, added: amount, date: date, cats: cats);
+      Haptics.success();
+      if (mounted) context.popOrGo();
+      if (alert != null) {
+        Toast.show(alert, type: ToastType.warning, duration: const Duration(seconds: 5));
+      } else {
+        Toast.saved(outcome, _editing == null ? (_recurring ? 'Recurring expense set up' : 'Expense added') : 'Changes saved');
       }
     } catch (e) {
-      setState(() {
-        _errorMessage = e.toString().replaceFirst('Exception: ', '');
-        _isLoading = false;
-      });
+      if (mounted) setState(() => _saving = false);
+      Toast.error(e);
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final categoriesAsync = ref.watch(userCategoriesProvider);
+    final cats = ref.watch(userCategoriesProvider).valueOrNull ?? CategoryModel.defaults;
 
-    if (widget.editExpenseId != null && !_initialized) {
-      return const Scaffold(
-        backgroundColor: AppTheme.surfaceBase,
-        body: Center(
-          child: CircularProgressIndicator(valueColor: AlwaysStoppedAnimation(AppTheme.accent)),
-        ),
-      );
+    if (_isEdit && !_initialized) {
+      final list = ref.watch(personalExpensesProvider);
+      final templates = ref.watch(personalTemplatesProvider);
+      final loading = list.isLoading || templates.isLoading;
+      final found = [...?list.valueOrNull, ...?templates.valueOrNull].where((e) => e.id == widget.editId).firstOrNull;
+      if (found != null) {
+        _initFrom(found, cats);
+      } else {
+        return Scaffold(
+          appBar: AppBar(title: const Text('Edit expense')),
+          body: Center(
+            child: loading
+                ? const CircularProgressIndicator()
+                : const EmptyState(
+                    icon: Icons.search_off_rounded,
+                    title: 'Expense not found',
+                    message: 'It may have been deleted.',
+                  ),
+          ),
+        );
+      }
     }
+    _categoryId ??= cats.isNotEmpty ? cats.first.id : CategoryModel.othersId;
+    final isTemplate = _editing?.isRecurringTemplate ?? false;
+    final title = _isEdit
+        ? (isTemplate ? 'Edit recurring' : 'Edit expense')
+        : (_recurring ? 'New recurring expense' : 'New expense');
 
     return Scaffold(
       appBar: AppBar(
-        backgroundColor: AppTheme.surfaceBase,
-        elevation: 0,
+        title: Text(title),
         leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: AppTheme.textPrimary),
-          onPressed: () => context.pop(),
-        ),
-        title: Text(
-          widget.editExpenseId != null ? 'EDIT ENTRY' : 'ADD ENTRY',
-          style: AppTheme.monoStyle.copyWith(
-            color: AppTheme.accent,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.5,
-            fontSize: 15,
-          ),
-        ),
-        centerTitle: true,
-        bottom: PreferredSize(
-          preferredSize: const Size.fromHeight(1.0),
-          child: Divider(
-            color: AppTheme.textSecondary.withValues(alpha: 0.1),
-            height: 1.0,
-            thickness: 1.0,
-          ),
+          tooltip: 'Close',
+          icon: const Icon(Icons.close_rounded),
+          onPressed: () => context.popOrGo(),
         ),
       ),
-      body: SafeArea(
-        child: categoriesAsync.when(
-          data: (categories) => _buildForm(categories),
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (err, stack) => Center(child: Text('Error: $err', style: const TextStyle(color: Colors.red))),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildForm(List<CategoryModel> categories) {
-    if (_selectedCategoryId == null && categories.isNotEmpty) {
-      _selectedCategoryId = categories.first.id;
-    }
-
-    final formattedDate = DateFormat('MMMM dd, yyyy').format(_selectedDate);
-
-    return SingleChildScrollView(
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Error Message
-              if (_errorMessage != null) ...[
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: AppTheme.semanticNegative.withValues(alpha: 0.1),
-                    border: Border.all(color: AppTheme.semanticNegative),
-                  ),
-                  child: Text(
-                    _errorMessage!,
-                    style: AppTheme.monoStyle.copyWith(
-                      color: AppTheme.semanticNegative,
-                      fontSize: 12,
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 24),
-              ],
-
-              // Amount Input Field
-              Text(
-                'AMOUNT (INR)',
-                style: AppTheme.monoSecondary.copyWith(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.5,
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextFormField(
-                controller: _amountController,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                style: AppTheme.monoStyle.copyWith(
-                  color: AppTheme.textPrimary,
-                  fontSize: 28,
-                  fontWeight: FontWeight.bold,
-                ),
-                cursorColor: AppTheme.accent,
-                validator: (val) {
-                  if (val == null || val.trim().isEmpty) {
-                    return 'Amount is required';
-                  }
-                  if (double.tryParse(val.trim()) == null) {
-                    return 'Enter a valid decimal number';
-                  }
-                  return null;
-                },
-                decoration: InputDecoration(
-                  filled: true,
-                  fillColor: AppTheme.surfaceCard,
-                  prefixIcon: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16),
-                    child: Text(
-                      '₹',
-                      style: TextStyle(color: AppTheme.accent, fontSize: 28, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
-                  contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                  border: OutlineInputBorder(
-                    borderSide: BorderSide(color: AppTheme.textSecondary.withValues(alpha: 0.3)),
-                    borderRadius: BorderRadius.zero,
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: AppTheme.textSecondary.withValues(alpha: 0.3)),
-                    borderRadius: BorderRadius.zero,
-                  ),
-                  focusedBorder: const OutlineInputBorder(
-                    borderSide: BorderSide(color: AppTheme.accent, width: 1.5),
-                    borderRadius: BorderRadius.zero,
-                  ),
-                  errorBorder: const OutlineInputBorder(
-                    borderSide: BorderSide(color: AppTheme.semanticNegative),
-                    borderRadius: BorderRadius.zero,
-                  ),
-                  focusedErrorBorder: const OutlineInputBorder(
-                    borderSide: BorderSide(color: AppTheme.semanticNegative, width: 1.5),
-                    borderRadius: BorderRadius.zero,
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // Description Input Field
-              _buildTextField(
-                label: 'DESCRIPTION / PAYEE',
-                controller: _descriptionController,
-                hintText: 'Whole Foods Market',
-              ),
-              const SizedBox(height: 24),
-
-              // Date Selection Row
-              Text(
-                'DATE',
-                style: AppTheme.monoSecondary.copyWith(
-                  fontSize: 10,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 1.5,
-                ),
-              ),
-              const SizedBox(height: 8),
-              InkWell(
-                onTap: () => _selectDate(context),
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-                  decoration: BoxDecoration(
-                    color: AppTheme.surfaceCard,
-                    border: Border.all(color: AppTheme.textSecondary.withValues(alpha: 0.3)),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        formattedDate,
-                        style: const TextStyle(color: AppTheme.textPrimary, fontSize: 15),
-                      ),
-                      const Icon(Icons.calendar_today_outlined, color: AppTheme.accent, size: 18),
-                    ],
-                  ),
-                ),
-              ),
-              const SizedBox(height: 24),
-
-              // Receipt / Bill Image Picker Section
-              _buildReceiptSection(),
-              const SizedBox(height: 24),
-
-              // Make Recurring Selector
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'MAKE RECURRING',
-                    style: AppTheme.monoSecondary.copyWith(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.5,
-                    ),
-                  ),
-                  Switch(
-                    value: _isRecurring,
-                    onChanged: (val) {
-                      setState(() {
-                        _isRecurring = val;
-                      });
-                    },
-                    activeTrackColor: AppTheme.accent.withValues(alpha: 0.3),
-                    inactiveThumbColor: AppTheme.textSecondary,
-                    inactiveTrackColor: AppTheme.surfaceCard,
-                  ),
-                ],
-              ),
-              if (_isRecurring) ...[
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  decoration: BoxDecoration(
-                    color: AppTheme.surfaceCard,
-                    border: Border.all(color: AppTheme.textSecondary.withValues(alpha: 0.3)),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: _recurrenceInterval,
-                      dropdownColor: AppTheme.surfaceBase,
-                      style: const TextStyle(color: AppTheme.textPrimary, fontSize: 15),
-                      isExpanded: true,
-                      items: const [
-                        DropdownMenuItem(
-                          value: 'weekly',
-                          child: Text('WEEKLY'),
-                        ),
-                        DropdownMenuItem(
-                          value: 'monthly',
-                          child: Text('MONTHLY'),
-                        ),
-                      ],
-                      onChanged: (val) {
-                        if (val != null) {
-                          setState(() {
-                            _recurrenceInterval = val;
-                          });
-                        }
-                      },
-                    ),
-                  ),
-                ),
-              ],
-              const SizedBox(height: 24),
-
-              // Category Selector Grid
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    'SELECT CATEGORY',
-                    style: AppTheme.monoSecondary.copyWith(
-                      fontSize: 10,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.5,
-                    ),
-                  ),
-                  InkWell(
-                    onTap: () => context.push('/categories'),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 4.0),
-                      child: Text(
-                        'MANAGE',
-                        style: AppTheme.monoStyle.copyWith(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: AppTheme.accent,
-                          letterSpacing: 0.5,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              if (categories.isEmpty)
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(24),
-                  decoration: BoxDecoration(
-                    border: Border.all(color: AppTheme.textSecondary.withValues(alpha: 0.2)),
-                  ),
-                  child: Center(
-                    child: Column(
-                      children: [
-                        Text(
-                          'No categories available.',
-                          style: AppTheme.monoSecondary.copyWith(fontSize: 12),
-                        ),
-                        const SizedBox(height: 12),
-                        InkWell(
-                          onTap: () => context.push('/categories'),
-                          child: Text(
-                            'CREATE A CATEGORY',
-                            style: AppTheme.monoStyle.copyWith(
-                              fontSize: 12,
-                              color: AppTheme.accent,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              else
-                GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 3,
-                    crossAxisSpacing: 12,
-                    mainAxisSpacing: 12,
-                    childAspectRatio: 1.0,
-                  ),
-                  itemCount: categories.length,
-                  itemBuilder: (context, index) {
-                    final category = categories[index];
-                    final isSelected = _selectedCategoryId == category.id;
-                    final color = category.color;
-                    final icon = category.icon;
-
-                    return InkWell(
-                      onTap: () {
-                        setState(() {
-                          _selectedCategoryId = category.id;
-                        });
-                      },
-                      child: Container(
-                        decoration: BoxDecoration(
-                          color: isSelected ? color.withValues(alpha: 0.1) : AppTheme.surfaceCard,
-                          border: Border.all(
-                            color: isSelected ? color : AppTheme.textSecondary.withValues(alpha: 0.2),
-                            width: isSelected ? 2.0 : 1.0,
-                          ),
-                        ),
-                        child: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(
-                              icon,
-                              color: isSelected ? color : AppTheme.textSecondary,
-                              size: 26,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              category.name.toUpperCase(),
-                              style: AppTheme.monoStyle.copyWith(
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                color: isSelected ? AppTheme.textPrimary : AppTheme.textSecondary,
-                              ),
-                              textAlign: TextAlign.center,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              const SizedBox(height: 40),
-
-              // Save Button
-              InkWell(
-                onTap: _isLoading ? null : _handleSave,
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 16),
-                  decoration: const BoxDecoration(
-                    color: AppTheme.accent,
-                  ),
-                  child: _isLoading
-                      ? const Center(
-                          child: SizedBox(
-                            height: 18,
-                            width: 18,
-                            child: CircularProgressIndicator(
-                              strokeWidth: 2,
-                              valueColor: AlwaysStoppedAnimation<Color>(Colors.black),
-                            ),
-                          ),
-                        )
-                      : Center(
-                          child: Text(
-                            widget.editExpenseId != null ? 'SAVE CHANGES' : 'ADD TO LEDGER',
-                            style: AppTheme.monoStyle.copyWith(
-                              color: Colors.black,
-                              fontWeight: FontWeight.bold,
-                              fontSize: 14,
-                              letterSpacing: 1.5,
-                            ),
-                          ),
-                        ),
-                ),
-              ),
-              const SizedBox(height: 24),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildReceiptSection() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'ATTACH RECEIPT / BILL PHOTO',
-          style: AppTheme.monoSecondary.copyWith(
-            fontSize: 10,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.5,
-          ),
-        ),
-        const SizedBox(height: 8),
-        if (_receiptUrl != null && _receiptUrl!.isNotEmpty)
-          Container(
-            padding: const EdgeInsets.all(12),
-            decoration: BoxDecoration(
-              color: AppTheme.surfaceCard,
-              border: Border.all(color: AppTheme.accent.withValues(alpha: 0.5)),
-            ),
-            child: Row(
+      body: Form(
+        key: _form,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(Space.gutter, 0, Space.gutter, 120),
+          children: [
+            const SizedBox(height: Space.md),
+            MoneyField(
+              controller: _amount,
+              autofocus: !_isEdit,
+              validator: (v) => Money.parse(v).error,
+            ).entrance(context),
+            const SizedBox(height: Space.lg),
+            AppTextField(
+              controller: _desc,
+              label: 'What was it for?',
+              hint: 'e.g. Dinner at Toit',
+              icon: Icons.edit_note_rounded,
+              maxLength: 60,
+              textCapitalization: TextCapitalization.sentences,
+              textInputAction: TextInputAction.done,
+              validator: (v) => (v?.trim().isEmpty ?? true) ? 'Add a short description' : null,
+            ).entrance(context, index: 1),
+            const SizedBox(height: Space.xl),
+            Row(
               children: [
-                Container(
-                  width: 48,
-                  height: 48,
-                  color: Colors.black,
-                  child: const Icon(Icons.receipt_long, color: AppTheme.accent),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'RECEIPT ATTACHED',
-                        style: AppTheme.monoStyle.copyWith(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: AppTheme.accent,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        'Bill photo saved with entry',
-                        style: AppTheme.monoSecondary.copyWith(fontSize: 10),
-                      ),
-                    ],
-                  ),
-                ),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline, color: AppTheme.semanticNegative),
-                  onPressed: () {
-                    setState(() {
-                      _receiptUrl = null;
-                    });
+                Expanded(child: Text('Category', style: context.text.titleSmall)),
+                TextButton.icon(
+                  onPressed: () async {
+                    final created = await showCategoryEditor(context);
+                    if (created != null && mounted) setState(() => _categoryId = created.id);
                   },
+                  icon: const Icon(Icons.add_rounded, size: 18),
+                  label: const Text('New'),
                 ),
               ],
             ),
-          )
-        else
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppTheme.accent,
-                    side: BorderSide(color: AppTheme.textSecondary.withValues(alpha: 0.4)),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: const RoundedRectangleBorder(),
-                  ),
-                  onPressed: () => _pickReceiptImage(ImageSource.camera),
-                  icon: const Icon(Icons.camera_alt_outlined, size: 16),
-                  label: Text(
-                    'TAKE PHOTO',
-                    style: AppTheme.monoStyle.copyWith(fontSize: 11, fontWeight: FontWeight.bold),
-                  ),
+            const SizedBox(height: Space.xs),
+            _CategoryGrid(
+              categories: cats,
+              selectedId: _categoryId,
+              onSelect: (id) => setState(() => _categoryId = id),
+            ).entrance(context, index: 2),
+            const SizedBox(height: Space.xl),
+            Text(_recurring ? 'Starts on' : 'Date', style: context.text.titleSmall),
+            const SizedBox(height: Space.sm),
+            Wrap(
+              spacing: Space.xs,
+              runSpacing: Space.xs,
+              children: [
+                ChoiceChipX(
+                  label: 'Today',
+                  selected: Dates.isSameDay(_date, DateTime.now()),
+                  onTap: () => setState(() => _date = DateTime.now()),
+                ),
+                ChoiceChipX(
+                  label: 'Yesterday',
+                  selected: Dates.isSameDay(_date, DateTime.now().subtract(const Duration(days: 1))),
+                  onTap: () => setState(() => _date = DateTime.now().subtract(const Duration(days: 1))),
+                ),
+                ChoiceChipX(
+                  label: _isOther(_date) ? Dates.dayLabel(_date) : 'Pick a date',
+                  icon: Icons.calendar_month_rounded,
+                  selected: _isOther(_date),
+                  onTap: _pickDate,
+                ),
+              ],
+            ),
+            const SizedBox(height: Space.xl),
+            if (!_isEdit || isTemplate)
+              AppCard(
+                padding: const EdgeInsets.symmetric(horizontal: Space.md, vertical: Space.xs),
+                child: Column(
+                  children: [
+                    if (!_isEdit)
+                      SwitchListTile(
+                        contentPadding: EdgeInsets.zero,
+                        value: _recurring,
+                        onChanged: (v) => setState(() => _recurring = v),
+                        secondary: const IconBadge(Icons.autorenew_rounded, size: 40),
+                        title: const Text('Repeat this expense'),
+                        subtitle: const Text('Rent, subscriptions, bills…'),
+                      ),
+                    AnimatedSize(
+                      duration: Motion.base,
+                      child: _recurring
+                          ? Padding(
+                              padding: const EdgeInsets.only(bottom: Space.sm, top: Space.xs),
+                              child: SizedBox(
+                                width: double.infinity,
+                                child: SegmentedButton<RecurrenceInterval>(
+                                  showSelectedIcon: false,
+                                  segments: [
+                                    for (final i in RecurrenceInterval.values)
+                                      ButtonSegment(value: i, label: Text(i.label)),
+                                  ],
+                                  selected: {_interval},
+                                  onSelectionChanged: (s) => setState(() => _interval = s.first),
+                                ),
+                              ),
+                            )
+                          : const SizedBox(width: double.infinity),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: OutlinedButton.icon(
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: AppTheme.accent,
-                    side: BorderSide(color: AppTheme.textSecondary.withValues(alpha: 0.4)),
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                    shape: const RoundedRectangleBorder(),
-                  ),
-                  onPressed: () => _pickReceiptImage(ImageSource.gallery),
-                  icon: const Icon(Icons.photo_library_outlined, size: 16),
-                  label: Text(
-                    'GALLERY',
-                    style: AppTheme.monoStyle.copyWith(fontSize: 11, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              ),
-            ],
+            if (!_isEdit || isTemplate) const SizedBox(height: Space.md),
+            _receiptSection(context),
+            const SizedBox(height: Space.md),
+            AnimatedSize(
+              duration: Motion.base,
+              child: _showNotes
+                  ? AppTextField(
+                      controller: _notes,
+                      label: 'Notes',
+                      icon: Icons.notes_rounded,
+                      maxLines: 3,
+                      maxLength: 200,
+                      textCapitalization: TextCapitalization.sentences,
+                    )
+                  : Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: () => setState(() => _showNotes = true),
+                        icon: const Icon(Icons.add_comment_outlined, size: 18),
+                        label: const Text('Add a note'),
+                      ),
+                    ),
+            ),
+          ],
+        ),
+      ),
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(Space.gutter, Space.xs, Space.gutter, Space.sm),
+          child: PrimaryButton(
+            label: _isEdit ? 'Save changes' : (_recurring ? 'Set up recurring' : 'Save expense'),
+            icon: Icons.check_rounded,
+            loading: _saving,
+            onPressed: () => _save(cats),
           ),
-      ],
+        ),
+      ),
     );
   }
 
-  Widget _buildTextField({
-    required String label,
-    required TextEditingController controller,
-    required String hintText,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: AppTheme.monoSecondary.copyWith(
-            fontSize: 10,
-            fontWeight: FontWeight.bold,
-            letterSpacing: 1.5,
-          ),
+  bool _isOther(DateTime d) {
+    final now = DateTime.now();
+    return !Dates.isSameDay(d, now) && !Dates.isSameDay(d, now.subtract(const Duration(days: 1)));
+  }
+
+  Widget _receiptSection(BuildContext context) {
+    final c = context.aurora;
+    final hasExisting = (_editing?.hasReceipt ?? false) && !_removeReceipt && _newReceipt == null;
+    if (_newReceiptBytes != null) {
+      return AppCard(
+        padding: const EdgeInsets.all(Space.sm),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: Radii.chip,
+              child: Image.memory(_newReceiptBytes!, width: 56, height: 56, fit: BoxFit.cover, cacheWidth: 168),
+            ),
+            const SizedBox(width: Space.sm),
+            const Expanded(child: Text('Receipt attached')),
+            IconButton(
+              tooltip: 'Remove receipt',
+              icon: Icon(Icons.close_rounded, color: c.negative),
+              onPressed: () => setState(() {
+                _newReceipt = null;
+                _newReceiptBytes = null;
+              }),
+            ),
+          ],
         ),
-        const SizedBox(height: 8),
-        TextFormField(
-          controller: controller,
-          style: const TextStyle(color: AppTheme.textPrimary, fontSize: 15),
-          cursorColor: AppTheme.accent,
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: AppTheme.surfaceCard,
-            hintText: hintText,
-            hintStyle: TextStyle(color: AppTheme.textSecondary.withValues(alpha: 0.4)),
-            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-            border: OutlineInputBorder(
-              borderSide: BorderSide(color: AppTheme.textSecondary.withValues(alpha: 0.3)),
-              borderRadius: BorderRadius.zero,
+      );
+    }
+    if (hasExisting) {
+      return AppCard(
+        padding: const EdgeInsets.all(Space.sm),
+        child: Row(
+          children: [
+            const IconBadge(Icons.receipt_long_rounded, size: 48),
+            const SizedBox(width: Space.sm),
+            const Expanded(child: Text('Receipt attached')),
+            TextButton(
+              onPressed: () => ReceiptViewer.show(
+                context,
+                receipt: ReceiptRef(receiptId: _editing!.receiptId, legacy: _editing!.legacyReceipt),
+                title: _editing!.description,
+              ),
+              child: const Text('View'),
             ),
-            enabledBorder: OutlineInputBorder(
-              borderSide: BorderSide(color: AppTheme.textSecondary.withValues(alpha: 0.3)),
-              borderRadius: BorderRadius.zero,
+            IconButton(
+              tooltip: 'Remove receipt',
+              icon: Icon(Icons.delete_outline_rounded, color: c.negative),
+              onPressed: () => setState(() => _removeReceipt = true),
             ),
-            focusedBorder: const OutlineInputBorder(
-              borderSide: BorderSide(color: AppTheme.accent, width: 1.5),
-              borderRadius: BorderRadius.zero,
-            ),
-            errorBorder: const OutlineInputBorder(
-              borderSide: BorderSide(color: AppTheme.semanticNegative),
-              borderRadius: BorderRadius.zero,
-            ),
-            focusedErrorBorder: const OutlineInputBorder(
-              borderSide: BorderSide(color: AppTheme.semanticNegative, width: 1.5),
-              borderRadius: BorderRadius.zero,
+          ],
+        ),
+      );
+    }
+    return SecondaryButton(
+      label: 'Attach receipt',
+      icon: Icons.add_a_photo_outlined,
+      onPressed: _chooseReceiptSource,
+    );
+  }
+}
+
+class _CategoryGrid extends StatelessWidget {
+  final List<CategoryModel> categories;
+  final String? selectedId;
+  final ValueChanged<String> onSelect;
+  const _CategoryGrid({required this.categories, required this.selectedId, required this.onSelect});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.aurora;
+    return GridView.builder(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 92,
+        mainAxisSpacing: Space.xs,
+        crossAxisSpacing: Space.xs,
+        childAspectRatio: 0.78,
+      ),
+      itemCount: categories.length,
+      itemBuilder: (context, i) {
+        final cat = categories[i];
+        final selected = cat.id == selectedId;
+        return Semantics(
+          selected: selected,
+          button: true,
+          label: cat.name,
+          child: GestureDetector(
+            onTap: () {
+              Haptics.tap();
+              onSelect(cat.id);
+            },
+            child: AnimatedContainer(
+              duration: Motion.fast,
+              margin: const EdgeInsets.only(right: 3, bottom: 3),
+              padding: const EdgeInsets.all(Space.xs),
+              decoration: BoxDecoration(
+                color: selected ? c.cta : c.surface,
+                borderRadius: Radii.tile,
+                border: Border.all(color: c.ink, width: Brutal.borderThin),
+                boxShadow: selected ? c.hardShadow(Brutal.shadowSmall) : const [],
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  CategoryBubble(cat, size: 38),
+                  const SizedBox(height: 6),
+                  Text(
+                    cat.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: context.text.labelMedium?.copyWith(
+                      color: selected ? c.onPop : c.text,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-        ),
-      ],
+        );
+      },
     );
   }
 }

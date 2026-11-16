@@ -1,16 +1,17 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import '../../personal_expenses/domain/expense_model.dart' show readDate;
 
 class GroupModel {
   final String groupId;
   final String name;
-  final List<String> members; // UIDs of group members
-  final List<String> admins; // UIDs of group admins
+  final List<String> members;
+  final List<String> admins;
   final DateTime createdAt;
-  final String createdBy; // UID of creator
-  final String? inviteCode; // Unique 6-character group code
+  final String createdBy;
+  final String? inviteCode;
   final bool isDeleted;
 
-  GroupModel({
+  const GroupModel({
     required this.groupId,
     required this.name,
     required this.members,
@@ -21,46 +22,38 @@ class GroupModel {
     this.isDeleted = false,
   });
 
-  Map<String, dynamic> toMap() {
-    return {
-      'groupId': groupId,
-      'name': name,
-      'members': members,
-      'admins': admins,
-      'createdAt': Timestamp.fromDate(createdAt),
-      'createdBy': createdBy,
-      'inviteCode': inviteCode,
-      'isDeleted': isDeleted,
-    };
-  }
+  bool isAdmin(String uid) => admins.contains(uid);
+  bool isMember(String uid) => members.contains(uid);
+
+  /// Admins that are still members (v1 could leave stale admin uids).
+  List<String> get activeAdmins => admins.where(members.contains).toList();
+
+  Map<String, dynamic> toMap() => {
+        'groupId': groupId,
+        'name': name,
+        'members': members,
+        'admins': admins,
+        'createdAt': Timestamp.fromDate(createdAt),
+        'createdBy': createdBy,
+        'inviteCode': inviteCode,
+        'isDeleted': isDeleted,
+      };
 
   factory GroupModel.fromMap(Map<String, dynamic> map, String id) {
-    final rawDate = map['createdAt'];
-    DateTime parsedDate = DateTime.now();
-    if (rawDate is Timestamp) {
-      parsedDate = rawDate.toDate();
-    } else if (rawDate is String) {
-      parsedDate = DateTime.tryParse(rawDate) ?? DateTime.now();
-    }
-
-    final createdBy = map['createdBy'] ?? '';
-    final rawAdmins = map['admins'];
-    List<String> parsedAdmins = [];
-    if (rawAdmins is List) {
-      parsedAdmins = List<String>.from(rawAdmins);
-    }
-    if (parsedAdmins.isEmpty && createdBy.isNotEmpty) {
-      parsedAdmins = [createdBy];
-    }
-
+    final createdBy = (map['createdBy'] ?? '').toString();
+    final members = List<String>.from((map['members'] ?? const []).map((e) => e.toString()));
+    var admins = map['admins'] is List
+        ? List<String>.from((map['admins'] as List).map((e) => e.toString()))
+        : <String>[];
+    if (admins.isEmpty && createdBy.isNotEmpty) admins = [createdBy];
     return GroupModel(
       groupId: id,
-      name: map['name'] ?? '',
-      members: List<String>.from(map['members'] ?? []),
-      admins: parsedAdmins,
-      createdAt: parsedDate,
+      name: (map['name'] ?? map['groupName'] ?? 'Group').toString(),
+      members: members,
+      admins: admins,
+      createdAt: readDate(map['createdAt']) ?? DateTime.now(),
       createdBy: createdBy,
-      inviteCode: map['inviteCode'],
+      inviteCode: (map['inviteCode'] as String?)?.toUpperCase(),
       isDeleted: map['isDeleted'] == true,
     );
   }

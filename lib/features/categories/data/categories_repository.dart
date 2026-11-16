@@ -1,91 +1,128 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:uuid/uuid.dart';
+import '../../../core/utils/app_exception.dart';
 import '../../../core/utils/firestore_helper.dart';
 import '../../auth/data/auth_repository.dart';
 import '../domain/category_model.dart';
 
-final categoriesRepositoryProvider = Provider<CategoriesRepository>((ref) {
-  return CategoriesRepository(
-    ref.watch(firestoreProvider),
-    ref.watch(firebaseAuthProvider),
-  );
+/// The user's categories (falls back to defaults while a v1 profile migrates).
+final userCategoriesProvider = Provider<AsyncValue<List<CategoryModel>>>((ref) {
+  return ref.watch(currentUserProfileProvider).whenData((p) {
+    final cats = p?.categories ?? const <CategoryModel>[];
+    return cats.isEmpty ? CategoryModel.defaults : cats;
+  });
 });
 
-final userCategoriesProvider = StreamProvider<List<CategoryModel>>((ref) {
-  final authState = ref.watch(authStateProvider);
-  return authState.when(
-    data: (user) {
-      if (user == null) return const Stream.empty();
-      final repository = ref.watch(categoriesRepositoryProvider);
-      return repository.streamCategories(user.uid);
-    },
-    loading: () => const Stream.empty(),
-    error: (err, stack) => const Stream.empty(),
-  );
+final categoriesRepositoryProvider = Provider<CategoriesRepository>((ref) {
+  return CategoriesRepository(ref.watch(firestoreProvider), ref.watch(currentUidProvider));
 });
 
 class CategoriesRepository {
-  final FirebaseFirestore _firestore;
-  final FirebaseAuth _auth;
+  final FirebaseFirestore _db;
+  final String? _uid;
 
-  CategoriesRepository(this._firestore, this._auth);
+  CategoriesRepository(this._db, this._uid);
 
-  String? get _uid => _auth.currentUser?.uid;
-
-  Stream<List<CategoryModel>> streamCategories(String uid) {
-    return retryOnPermissionDenied(() => _firestore
-        .collection('users')
-        .doc(uid)
-        .snapshots()
-        .map((snapshot) {
-          final data = snapshot.data();
-          if (data == null || data['categories'] == null) return [];
-          final list = data['categories'] as List;
-          return list.map((e) => CategoryModel.fromMap(Map<String, dynamic>.from(e))).toList();
-        }));
+  DocumentReference<Map<String, dynamic>> get _doc {
+    final uid = _uid;
+    if (uid == null) throw const AppException('Please sign in again.');
+    return _db.collection('users').doc(uid);
   }
 
-  Future<void> addCategory(CategoryModel category) async {
-    final uid = _uid;
-    if (uid == null) throw Exception('User not authenticated');
-
-    await _firestore.collection('users').doc(uid).set({
-      'categories': FieldValue.arrayUnion([category.toMap()]),
-    }, SetOptions(merge: true));
+  Future<List<Map<String, dynamic>>> _read(Transaction tx) async {
+    final snap = await tx.get(_doc);
+    final raw = snap.data()?['categories'];
+    if (raw is List && raw.isNotEmpty) {
+      return raw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+    }
+    return CategoryModel.defaults.map((c) => c.toMap()).toList();
   }
 
-  Future<void> updateCategory(CategoryModel oldCategory, CategoryModel newCategory) async {
-    final uid = _uid;
-    if (uid == null) throw Exception('User not authenticated');
+  void _checkName(List<Map<String, dynamic>> list, String name, {String? exceptId}) {
+    final clean = name.trim();
+    if (clean.isEmpty) throw const AppException('Give the category a name.');
+    if (clean.length > 24) throw const AppException('Keep the name under 24 characters.');
+    final dup = list.any((m) =>
+        m['id'] != exceptId && (m['name'] ?? '').toString().trim().toLowerCase() == clean.toLowerCase());
+    if (dup) throw AppException('You already have a "$clean" category.');
+  }
 
-    final docRef = _firestore.collection('users').doc(uid);
-    await _firestore.runTransaction((transaction) async {
-      final snapshot = await transaction.get(docRef);
-      
-      final List<dynamic> categories = [];
-      if (snapshot.exists) {
-        final data = snapshot.data() ?? {};
-        categories.addAll(data['categories'] ?? []);
-      }
-      
-      final index = categories.indexWhere((element) => element['id'] == oldCategory.id);
-      if (index != -1) {
-        categories[index] = newCategory.toMap();
+  Future<CategoryModel> add({
+    required String name,
+    required String iconCode,
+    required String colorHex,
+    double? monthlyBudget,
+  }) async {
+    final category = CategoryModel(
+      id: const Uuid().v4(),
+      name: name.trim(),
+      iconCode: iconCode,
+      colorHex: colorHex,
+      monthlyBudget: monthlyBudget,
+    );
+    await _db.runTransaction((tx) async {
+      final list = await _read(tx);
+      _checkName(list, name);
+      list.add(category.toMap());
+      tx.set(_doc, {'categories': list}, SetOptions(merge: true));
+    });
+    return category;
+  }
+
+  Future<void> update(CategoryModel category) async {
+    await _db.runTransaction((tx) async {
+      final list = await _read(tx);
+      _checkName(list, category.name, exceptId: category.id);
+      final i = list.indexWhere((m) => m['id'] == category.id);
+      if (i == -1) {
+        list.add(category.toMap());
       } else {
-        categories.add(newCategory.toMap());
+        list[i] = category.toMap();
       }
-      
-      transaction.set(docRef, {'categories': categories}, SetOptions(merge: true));
+      tx.set(_doc, {'categories': list}, SetOptions(merge: true));
     });
   }
 
-  Future<void> deleteCategory(CategoryModel category) async {
-    final uid = _uid;
-    if (uid == null) throw Exception('User not authenticated');
+  Future<void> setBudget(String categoryId, double? budget) async {
+    await _db.runTransaction((tx) async {
+      final list = await _read(tx);
+      final i = list.indexWhere((m) => m['id'] == categoryId);
+      if (i == -1) return;
+      if (budget == null || budget <= 0) {
+        list[i].remove('monthlyBudget');
+      } else {
+        list[i]['monthlyBudget'] = budget;
+      }
+      tx.set(_doc, {'categories': list}, SetOptions(merge: true));
+    });
+  }
 
-    await _firestore.collection('users').doc(uid).set({
-      'categories': FieldValue.arrayRemove([category.toMap()]),
-    }, SetOptions(merge: true));
+  /// Removes the category and moves its expenses to "Other" (by id and, for v1
+  /// expenses, by name) so nothing turns into a phantom category.
+  Future<void> delete(CategoryModel category) async {
+    await _db.runTransaction((tx) async {
+      final list = await _read(tx);
+      list.removeWhere((m) => m['id'] == category.id);
+      tx.set(_doc, {'categories': list}, SetOptions(merge: true));
+    });
+
+    final expenses = _doc.collection('expenses');
+    final byId = await expenses.where('categoryId', isEqualTo: category.id).get();
+    final byName = await expenses.where('category', isEqualTo: category.name).get();
+    final refs = {
+      for (final d in [...byId.docs, ...byName.docs]) d.id: d.reference,
+    }.values.toList();
+    for (final chunk in chunked(refs, 450)) {
+      final batch = _db.batch();
+      for (final r in chunk) {
+        batch.update(r, {
+          'categoryId': CategoryModel.othersId,
+          'category': CategoryModel.others.name,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+      }
+      await batch.commit();
+    }
   }
 }

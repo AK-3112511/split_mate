@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Split Mate</string>
+	<string>SplitMate</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -45,5 +45,26 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>splitmate.join</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>splitmate</string>
+			</array>
+		</dict>
+	</array>
+	<key>FlutterDeepLinkingEnabled</key>
+	<false/>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>upi</string>
+	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>Take photos of receipts and your profile picture.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Attach receipt photos and choose a profile picture.</string>
 </dict>
 </plist>
