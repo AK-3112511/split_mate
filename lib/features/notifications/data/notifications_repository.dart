@@ -108,6 +108,43 @@ class NotificationsRepository {
     }
   }
 
+  /// Ids of unread [items] that a request handled elsewhere made stale, e.g. a
+  /// friend request accepted from the Friends tab or an invite from Groups.
+  static List<String> staleRequestIds(
+    List<NotificationModel> items, {
+    required String type,
+    String? senderUid,
+    String? groupId,
+  }) {
+    return items
+        .where((n) =>
+            !n.isRead &&
+            n.type == type &&
+            (senderUid == null || n.senderUid == senderUid) &&
+            (groupId == null || n.groupId == groupId))
+        .map((n) => n.id)
+        .toList();
+  }
+
+  /// Marks those notifications read. Best effort: never blocks or fails the
+  /// action that handled the request.
+  Future<void> markRequestHandled(
+    List<NotificationModel> items, {
+    required String type,
+    String? senderUid,
+    String? groupId,
+  }) async {
+    final ids = staleRequestIds(items, type: type, senderUid: senderUid, groupId: groupId);
+    if (ids.isEmpty) return;
+    try {
+      final batch = _db.batch();
+      for (final id in ids) {
+        batch.update(_col.doc(id), {'isRead': true});
+      }
+      await batch.commit();
+    } catch (_) {}
+  }
+
   Future<void> delete(String id) => _col.doc(id).delete();
 
   Future<void> clearAll(List<NotificationModel> items) async {

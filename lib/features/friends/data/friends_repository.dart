@@ -111,7 +111,8 @@ class FriendsRepository {
   }
 
   /// Sends a request, or accepts instantly if they already asked you.
-  Future<FriendRequestResult> sendRequest(String rawCode) async {
+  /// Also returns the other person's uid.
+  Future<({FriendRequestResult result, String uid})> sendRequest(String rawCode) async {
     final me = _me;
     final target = await findByCode(rawCode);
     if (target.uid == me) throw const AppException('That\'s your own code 🙂');
@@ -122,7 +123,7 @@ class FriendsRepository {
       if (edge.isAccepted) throw AppException('${target.displayName} is already your friend.');
       if (edge.sentBy == me) throw AppException('Request already sent to ${target.displayName}.');
       await accept(target.uid);
-      return FriendRequestResult.accepted;
+      return (result: FriendRequestResult.accepted, uid: target.uid);
     }
 
     final now = DateTime.now();
@@ -137,7 +138,7 @@ class FriendsRepository {
           type: NotificationModel.friendRequest,
           message: '${_notify.senderName} sent you a friend request',
         ), label: 'friend request notify');
-    return FriendRequestResult.sent;
+    return (result: FriendRequestResult.sent, uid: target.uid);
   }
 
   Future<void> accept(String otherUid) async {

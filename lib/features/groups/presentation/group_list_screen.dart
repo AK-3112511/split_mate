@@ -12,6 +12,8 @@ import '../../../shared_widgets/cards.dart';
 import '../../../shared_widgets/feedback.dart';
 import '../../../shared_widgets/motion.dart';
 import '../../../shared_widgets/states.dart';
+import '../../notifications/data/notifications_repository.dart';
+import '../../notifications/domain/notification_model.dart';
 import '../data/balances_providers.dart';
 import '../data/groups_repository.dart';
 import '../domain/group_invite_model.dart';
@@ -269,6 +271,9 @@ class _InviteCardState extends ConsumerState<_InviteCard> {
     setState(() => _busy = true);
     final repo = ref.read(groupsRepositoryProvider);
     final router = GoRouter.of(context);
+    // Read up front: this card is gone once the invite is handled.
+    final notify = ref.read(notificationsRepositoryProvider);
+    final inbox = ref.read(userNotificationsStreamProvider).valueOrNull ?? const [];
     try {
       if (accept) {
         await repo.acceptInvite(widget.invite);
@@ -278,6 +283,7 @@ class _InviteCardState extends ConsumerState<_InviteCard> {
         await repo.declineInvite(widget.invite.inviteId);
         Toast.info('Invitation declined');
       }
+      notify.markRequestHandled(inbox, type: NotificationModel.groupInvite, groupId: widget.invite.groupId);
     } catch (e) {
       Toast.error(e);
       if (mounted) setState(() => _busy = false);

@@ -183,8 +183,8 @@ Severity: **P0** = wrong money / crash / security · **P1** = broken flow · **P
 | E-04 | P1 | Debtor's mirror missing when the creditor records the payment, until a cold start (scan once per process; skipped on re-login / resume) | core/session/bootstrap.dart, app.dart | ✅ |
 | E-05 | P2 | Personal info Save hidden behind the keyboard | profile/presentation/personal_info_screen.dart | ✅ |
 | E-06 | P2 | "Pay via UPI" label wraps to two lines | groups/presentation/tabs/balances_tab.dart | ✅ |
-| E-07 | P2 | Friend-request notification stays unread after accepting from the Friends tab | notifications | ⬜ |
-| E-08 | P2 | Back on Personal info silently discards unsaved edits | profile/presentation/personal_info_screen.dart | ⬜ |
+| E-07 | P2 | Friend-request notification stays unread after accepting from the Friends tab (same for group invites from Groups, and for a mutual request auto-accept) | friends_screen.dart, group_list_screen.dart, notifications_repository.dart | ✅ |
+| E-08 | P2 | Back on Personal info silently discards unsaved edits → now asks "Discard changes?" | profile/presentation/personal_info_screen.dart | ✅ |
 
 ## Security rules — manual verification matrix
 

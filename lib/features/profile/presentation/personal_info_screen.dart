@@ -27,6 +27,48 @@ class _PersonalInfoScreenState extends ConsumerState<PersonalInfoScreen> {
   final _upi = TextEditingController();
   bool _seeded = false;
   bool _saving = false;
+  bool _dirty = false;
+  bool _leaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _name.addListener(_onEdit);
+    _upi.addListener(_onEdit);
+  }
+
+  bool _hasChanges() {
+    final profile = ref.read(currentUserProfileProvider).valueOrNull;
+    if (!_seeded || profile == null) return false;
+    return _name.text.trim() != profile.displayName.trim() || _upi.text.trim() != (profile.upiId ?? '');
+  }
+
+  void _onEdit() {
+    final dirty = _hasChanges();
+    if (dirty != _dirty) setState(() => _dirty = dirty);
+  }
+
+  void _leave() {
+    setState(() => _leaving = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) context.popOrGo('/profile');
+    });
+  }
+
+  /// Back with unsaved edits asks first instead of silently dropping them.
+  Future<void> _confirmLeave() async {
+    if (_saving) return;
+    if (!_hasChanges()) return _leave();
+    final discard = await confirmAction(
+      context,
+      title: 'Discard changes?',
+      message: 'Your changes on this page are not saved yet.',
+      confirmLabel: 'Discard',
+      destructive: true,
+      icon: Icons.edit_off_rounded,
+    );
+    if (discard && mounted) _leave();
+  }
 
   @override
   void dispose() {
@@ -44,7 +86,7 @@ class _PersonalInfoScreenState extends ConsumerState<PersonalInfoScreen> {
       if (_name.text.trim() != profile?.displayName) await repo.updateDisplayName(_name.text);
       if (_upi.text.trim() != (profile?.upiId ?? '')) await repo.updateUpiId(_upi.text);
       Toast.success('Saved');
-      if (mounted) context.popOrGo('/profile');
+      if (mounted) _leave();
     } catch (e) {
       Toast.error(e);
     } finally {
@@ -63,8 +105,13 @@ class _PersonalInfoScreenState extends ConsumerState<PersonalInfoScreen> {
       _upi.text = profile.upiId ?? '';
     }
 
-    return Scaffold(
-      appBar: AppBar(leading: BackButton(onPressed: () => context.popOrGo('/profile')), title: const Text('Personal info')),
+    return PopScope(
+      canPop: _leaving || !_dirty,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _confirmLeave();
+      },
+      child: Scaffold(
+      appBar: AppBar(leading: BackButton(onPressed: _confirmLeave), title: const Text('Personal info')),
       body: Form(
         key: _form,
         child: ListView(
@@ -139,6 +186,7 @@ class _PersonalInfoScreenState extends ConsumerState<PersonalInfoScreen> {
               Space.gutter, Space.xs, Space.gutter, Space.sm + MediaQuery.viewInsetsOf(context).bottom),
           child: PrimaryButton(label: 'Save', icon: Icons.check_rounded, loading: _saving, onPressed: _save),
         ),
+      ),
       ),
     );
   }

@@ -145,7 +145,7 @@ Accounts switched on the phone (you signed in each time). Test data lived in two
 
 Checks: analyze clean, **85 tests pass** (new: `test/core/firestore_helper_test.dart`, `test/core/upi_uri_test.dart`).
 
-**Still open (minor):** a friend-request notification stays unread after you accept the request from the Friends tab; Back on Personal info discards unsaved edits without asking.
+**Follow-up fixes (same day):** handling a friend request (accept, decline, or mutual auto-accept) or a group invite now marks its notification read (E-07, unit-tested; not yet seen across two accounts on the device). Back on Personal info with unsaved edits asks "Discard changes?" (E-08, verified on device: system Back, app-bar back, Cancel, Discard, no prompt when unchanged). 87 tests pass.
 
 ### New logo + animated splash — ✅ 2026-11-16
 - **Logo:** a coin split into two halves (mint = owed to you, coral = you owe) on brand yellow, with ink outlines and hard shadows. Drawn in code (`shared_widgets/logo_mark.dart`, animatable `split` value) and as PNGs (`assets/icon/icon.png`, adaptive foreground `icon_fg.png`, `assets/logo.png`) by `flutter_launcher_icons`. Preview: `docs/design/logo.png`.

@@ -20,6 +20,8 @@ import '../../../shared_widgets/states.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../groups/data/balances_providers.dart';
 import '../../groups/data/groups_repository.dart';
+import '../../notifications/data/notifications_repository.dart';
+import '../../notifications/domain/notification_model.dart';
 import '../data/friends_repository.dart';
 import '../domain/friend_model.dart';
 
@@ -224,6 +226,9 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
     if (_busy) return;
     setState(() => _busy = true);
     final name = ref.read(realNameProvider(widget.edge.uid));
+    // Read up front: this card is gone once the request is handled.
+    final notify = ref.read(notificationsRepositoryProvider);
+    final inbox = ref.read(userNotificationsStreamProvider).valueOrNull ?? const [];
     try {
       if (accept) {
         await ref.read(friendsRepositoryProvider).accept(widget.edge.uid);
@@ -233,6 +238,7 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
         await ref.read(friendsRepositoryProvider).remove(widget.edge.uid);
         Toast.info('Request declined');
       }
+      notify.markRequestHandled(inbox, type: NotificationModel.friendRequest, senderUid: widget.edge.uid);
     } catch (e) {
       Toast.error(e);
       if (mounted) setState(() => _busy = false);
@@ -333,11 +339,16 @@ class _AddFriendState extends ConsumerState<_AddFriend> {
       _busy = true;
       _error = null;
     });
+    final notify = ref.read(notificationsRepositoryProvider);
+    final inbox = ref.read(userNotificationsStreamProvider).valueOrNull ?? const [];
     try {
       final res = await ref.read(friendsRepositoryProvider).sendRequest(code);
       Haptics.success();
       if (mounted) Navigator.of(context).pop();
-      Toast.success(res == FriendRequestResult.accepted ? 'You\'re now friends 🎉' : 'Friend request sent');
+      final accepted = res.result == FriendRequestResult.accepted;
+      // They had already asked us: their request notification is now handled.
+      if (accepted) notify.markRequestHandled(inbox, type: NotificationModel.friendRequest, senderUid: res.uid);
+      Toast.success(accepted ? 'You\'re now friends 🎉' : 'Friend request sent');
     } catch (e) {
       if (mounted) {
         setState(() {
