@@ -1,94 +1,133 @@
-# 💸 SplitMate — track spending, split bills, stay friends
+<p align="center">
+  <img src="docs/design/logo.png" alt="SplitMate logo" width="96" />
+</p>
 
-SplitMate is a Flutter + Firebase app that combines a **personal expense tracker** with **group bill splitting**. It shows who owes whom, lets people settle up over UPI, and copies each person's share of group expenses into their personal ledger.
+<h1 align="center">SplitMate</h1>
 
-**v2 "Aurora"** is a full rebuild:
-- Fixes roughly 150 audited issues, including several that produced wrong balances.
-- Hardens the security rules.
-- Adds a new animated light and dark design, plus budgets, UPI settle-up, search and monthly recaps.
+<p align="center">
+  Track what you spend, split bills with friends, and settle up without the awkward follow-up messages.
+</p>
 
-> 📄 Docs: [PRD](PRD.md) · [Progress log](PROGRESS.md) · [Audit findings](AUDIT.md) · [Design system](DESIGN_SYSTEM.md)
+## Download
 
----
+**[Download SplitMate v2.0.0 for Android (APK)](https://github.com/AK-3112511/split_mate/releases/download/v2.0.0/app-release.apk)**
 
-## ✨ Features
+1. Open the link on your Android phone and download the APK.
+2. When Android asks, allow your browser or file manager to install apps from this source.
+3. Open SplitMate and create an account, or continue with Google.
 
-### Personal
-- **Home dashboard:** a gradient hero card (this month's spend, trend vs last month, what you're owed and what you owe), budget rings, a category donut, 6-month trends and a day-grouped expense list.
-- **Expenses:** add, edit and delete, with Undo. Each expense can have a category, a back-dated date (never in the future), notes, a receipt photo, and weekly or monthly repeats.
-- **Categories and budgets:** custom icons and colours, a monthly budget per category, and alerts at 80% and 100%.
-- **Search** across personal and group expenses, plus a detail sheet for every expense.
-- **Monthly recap:** a story-style summary of your month that you can share as an image.
-- **Export:** CSV and PDF for any date range.
+If you have a 1.x version installed, please update. Older builds can no longer sync with the server.
 
-### Groups
-- Create a group and invite friends, or join with a 6-character code or an invite link (`splitmate://join?code=…`).
-- **Four split modes:** Equal, Exact, Percent and Itemized. A live "₹X left to assign" meter shows what's still unassigned, and all maths is done in exact paise.
-- **Balances tab:** shows direct who-owes-whom balances, with an optional "Simplify debts" view.
-- **Settle up:**
-  - Partial payments.
-  - "Pay via UPI", which opens GPay, PhonePe or Paytm with the amount filled in.
-  - Mark as received.
-  - Reminders, limited to one per day.
-  - Confetti when a debt reaches ₹0 🎉
-- **Stats tab:** categories, trends, and what each member paid vs. their share.
-- **Members tab:** roles (promote or demote), remove a member, generate a new invite code, and add members as friends.
-- **Activity timeline** with a readable record of each edit; members are notified of edits and deletes.
-- **PDF report** for the whole group.
+## About
+
+SplitMate is an expense tracker and bill-splitting app for flatmates, trips and office lunches. It keeps two things in one place:
+
+- **Your own spending:** categories, budgets, trends and a monthly recap.
+- **Shared spending:** groups, splits, balances and settling up.
+
+The two are connected. When you pay for a group dinner or settle your share of one, that amount shows up in your personal ledger too, so your monthly total reflects what you actually spent.
+
+## Features
+
+### Personal expenses
+- Add, edit and delete expenses, with Undo after deleting.
+- Every expense can have a category, notes and a receipt photo, and can be back-dated.
+- Recurring expenses (weekly or monthly) for rent, subscriptions and other regular bills.
+- Monthly budgets per category, with a warning at 80% and another when you go over.
+- Home dashboard: this month's total, the change from last month, a category breakdown and six months of trends. View today, this week, this month, all time or a custom range.
+- Search across personal and group expenses.
+- A monthly recap you can share as an image.
+- Export to CSV or PDF for any date range.
+
+### Groups and splitting
+- Create a group and invite friends. Others can join with a 6-character code or an invite link.
+- Four ways to split: equally, by exact amounts, by percentage, or item by item. A running "left to assign" counter shows what's still unassigned before you save.
+- All amounts are calculated in whole paise, so shares always add up to the total.
+- Balances show exactly who owes whom. An optional "simplify" view reduces the number of payments needed.
+- An activity log records every expense added, edited or deleted, and members are notified.
+- Admins can rename the group, manage members and generate a new invite code. The last admin can't leave a group without handing over first.
+- Export a PDF report of the whole group.
+
+### Settling up
+- Record full or partial payments, from either side: the person who paid or the person who was paid back.
+- **Pay via UPI** opens your UPI app (Google Pay, PhonePe, Paytm and others) with the payee and amount already filled in. SplitMate never handles money itself; it only records the payment once you confirm it went through.
+- Send a reminder to someone who owes you (at most once a day per person in each group).
 
 ### Friends and notifications
-- Friend codes with no look-alike characters, so they're easy to read out. A mutual request is accepted automatically. You can cancel a sent request, unfriend someone, and set nicknames that only you see.
-- Each friend shows your direct balance with them across all shared groups.
-- One notifications inbox, where each notification opens the right screen.
+- Add friends with a short friend code. Look-alike characters such as 0/O and 1/I are left out, so codes are easy to read out loud.
+- Each friend shows your overall balance with them across every group you share.
+- Nicknames that only you can see.
+- One notifications inbox. Tapping a notification takes you to the right screen.
 
-### Design
-- **Midnight Aurora:** violet-to-cyan gradients, glass navigation bar, rounded cards and the Plus Jakarta Sans font. Light and dark themes, with the choice saved.
-- Staggered entrance animations, numbers that count up, shimmer loading placeholders, haptic feedback and confetti.
+### Everyday details
+- Light, dark and system themes.
+- Works offline: expenses you add without a connection are saved and synced once you're back online.
 - Respects the system "reduce motion" setting.
 
----
+## Screenshots
 
-## 🛠 Tech stack
+| Light | Dark |
+|:---:|:---:|
+| <img src="docs/design/pop-brutal-light.png" alt="SplitMate home screen, light theme" width="260" /> | <img src="docs/design/pop-brutal-dark.png" alt="SplitMate home screen, dark theme" width="260" /> |
 
-| Area | Packages |
+## Built with
+
+| Area | Tools |
 |---|---|
-| UI | Flutter 3.50 · `material_ui` · `cupertino_ui` · `google_fonts` · `flutter_animate` · `animations` · `shimmer` · `confetti` · `fl_chart` |
-| State & navigation | `flutter_riverpod` · `go_router` (with `StatefulShellRoute`) |
-| Backend | Firebase Auth (email and Google) · Cloud Firestore, on the free Spark plan (no Cloud Functions or Storage) |
-| Other | `app_links` (deep links) · `url_launcher` (UPI) · `share_plus` · `pdf` · `image_picker` · `shared_preferences` |
+| App | Flutter (Dart), Riverpod for state, go_router for navigation |
+| Backend | Firebase Authentication (email and Google), Cloud Firestore |
+| UI | Custom design system, Space Grotesk, fl_chart, flutter_animate |
+| Integrations | UPI deep links (`url_launcher`), invite links (`app_links`), PDF and CSV export, sharing |
 
-All business logic runs on the device:
-- `lib/core/domain/` contains pure, unit-tested code: the split calculator, settlement and pairwise balances, and recurrence rules.
-- Repositories in `lib/features/*/data/` are the only code that talks to Firestore.
+The app runs on Firebase's free Spark plan, so there are no Cloud Functions. All the money logic (splits, balances, settlement and recurring schedules) runs on the device in plain Dart and is covered by unit tests. Firestore security rules decide who can read and change each group, expense and friendship.
+
+### Project structure
 
 ```text
 lib/
-├── core/        domain maths · router · session bootstrap · theme · utilities
-├── features/    auth · home · personal_expenses · categories · groups · friends
-│                notifications · profile · recurring_expenses · receipts · search · recap · export
-├── shared_widgets/   cards · buttons · inputs · avatars · states · toasts · charts bits
-├── app.dart / app_shell.dart / main.dart
+├── core/             Split, settlement and recurrence logic; router; theme; utilities
+├── features/         One folder per feature: auth, home, personal_expenses, groups,
+│                     friends, notifications, categories, profile, recap, search, export
+├── shared_widgets/   Reusable cards, buttons, inputs, avatars and states
+└── main.dart
+test/                 Unit and widget tests
+firestore.rules       Firestore security rules
 ```
 
----
+## Running it locally
 
-## 🚀 Setup
+**Requirements:** Flutter 3.50 or newer, an Android device or emulator, and a Firebase project if you want to use your own backend.
 
-1. Install dependencies.
+1. Clone the repository and install dependencies.
+
+   ```bash
+   git clone https://github.com/AK-3112511/split_mate.git
+   ```
+
+   ```bash
+   cd split_mate
+   ```
 
    ```bash
    flutter pub get
    ```
 
-2. Add your `android/app/google-services.json` (FlutterFire).
+2. Connect your own Firebase project. This step is optional: without it, the app uses the existing SplitMate Firebase project.
+   - In the Firebase console, create a project and turn on **Email/Password** and **Google** sign-in under Authentication.
+   - Create a Cloud Firestore database.
+   - Run the FlutterFire CLI. It regenerates `lib/firebase_options.dart` and `android/app/google-services.json`.
 
-3. Deploy the security rules. No composite indexes are needed.
+   ```bash
+   flutterfire configure
+   ```
+
+   - For Google sign-in, add your signing key's SHA-1 fingerprint to the Android app in the Firebase console.
+
+3. Deploy the security rules.
 
    ```bash
    firebase deploy --only firestore:rules
    ```
-
-   > Deploy the rules together with the v2 app. Older v1 builds are rejected by the hardened rules.
 
 4. Run the app.
 
@@ -96,18 +135,29 @@ lib/
    flutter run
    ```
 
-5. Run the analyzer and tests.
+### Tests
 
-   ```bash
-   flutter analyze
-   ```
+```bash
+flutter test
+```
 
-   ```bash
-   flutter test
-   ```
+```bash
+flutter analyze
+```
 
----
+## Known limitations
 
-## 📄 License
+- Android is the only platform that has been set up and tested. The code is cross-platform Flutter, but iOS still needs its Firebase configuration and testing.
+- There are no push notifications. Notifications appear in the in-app inbox, because push would need Cloud Functions, which the free Firebase plan doesn't include.
+- Amounts are in Indian rupees.
+
+## Project docs
+
+- [Product requirements](PRD.md)
+- [Design system](DESIGN_SYSTEM.md)
+- [Audit findings](AUDIT.md)
+- [Progress log](PROGRESS.md)
+
+## License
 
 MIT
