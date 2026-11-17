@@ -209,6 +209,13 @@ Test group **TEST R2** (created by B, A invited) plus a solo **TEST Solo** for a
 - Verified on device: guest added, ₹300 split with them, ₹50 cash received; claim link opened while signed out survived sign-in and "Are you Rahul?" moved everything (claimant owed ₹100, payment and share now theirs, activity "took over Rahul's spot", group notified); second guest linked by hand to an existing member and their shares merged (₹30 + ₹30 → ₹60). Test group, ledger entries and notifications cleaned up.
 - Version 2.1.0+7.
 
+### WhatsApp sharing — ✅ 2026-11-17
+- **Share balances** (share icon next to "Who owes whom"): preview card with group name, date, total spent and who owes whom (real names, not "You"), shared as an image with a one-line caption and the group's invite link.
+- **Remind on WhatsApp:** "Remind" on a debt owed to you now offers *In SplitMate* (notification, once a day) or *On WhatsApp*; guests get a WhatsApp button directly. The message is one line: amount and group, a tappable pay link when you have a UPI ID, and the claim link for guests. Falls back to the share sheet without WhatsApp; suggests adding a UPI ID when missing.
+- **Pay page** https://splitmate-6b600.web.app/pay (hosting/pay.html): validates the UPI ID and amount, shows "Pay ₹X to Name" with the UPI ID and a button that opens the UPI app (WhatsApp doesn't make `upi://` links tappable). Not an App Link, so it always opens in the browser.
+- Verified on device (nothing sent or paid): preview card and share sheet with image + caption; WhatsApp opened on "Send to…" with the message; pay page rendered and its button opened Android's UPI app chooser. Test group and ledger entry cleaned up.
+- Version 2.2.0+8.
+
 ## Manual end-to-end checklist (Phase 7)
 
 Two test accounts (A, B) on an Android emulator.

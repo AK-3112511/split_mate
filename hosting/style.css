@@ -58,3 +58,4 @@ a { color: var(--link); }
   background: transparent; color: var(--text);
   border: 2px solid var(--border); border-radius: 10px; cursor: pointer;
 }
+.upi { font-size: 1.15rem; font-weight: 700; word-break: break-all; }

@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <title>Pay with UPI · SplitMate</title>
+  <meta name="description" content="Pay a friend back with any UPI app." />
+  <meta property="og:title" content="Pay me back on UPI" />
+  <meta property="og:description" content="Tap to open your UPI app with the amount filled in." />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main>
+    <p class="brand"><a href="/">SplitMate</a></p>
+
+    <div id="ok" hidden>
+      <h1 id="title">Pay with UPI</h1>
+      <p class="lead" id="note"></p>
+
+      <div class="code-box">
+        <span class="muted">UPI ID</span>
+        <span class="upi" id="vpa"></span>
+        <button type="button" class="copy" id="copy">Copy</button>
+      </div>
+
+      <p><a class="button" id="pay" href="#">Pay with a UPI app</a></p>
+      <p class="muted">Opens Google Pay, PhonePe, Paytm or another UPI app on this phone, with the amount filled in. You confirm the payment in that app. SplitMate never handles your money.</p>
+      <p class="muted">After paying, let them know so they can mark it as received.</p>
+    </div>
+
+    <div id="bad" hidden>
+      <h1>This payment link isn't complete</h1>
+      <p class="lead">Ask the person who sent it for their UPI ID, or open SplitMate to settle up.</p>
+    </div>
+
+    <p class="muted"><a href="/privacy">Privacy policy</a></p>
+  </main>
+
+  <script>
+    (function () {
+      var p = new URLSearchParams(location.search);
+      var vpa = (p.get('pa') || '').trim();
+      var name = (p.get('pn') || '').trim().slice(0, 50);
+      var amount = (p.get('am') || '').trim();
+      var note = (p.get('tn') || 'SplitMate').trim().slice(0, 50);
+
+      var validVpa = /^[a-zA-Z0-9.\-_]{2,256}@[a-zA-Z]{2,64}$/.test(vpa);
+      var validAmount = /^\d{1,7}(\.\d{1,2})?$/.test(amount) && parseFloat(amount) > 0;
+      if (!validVpa || !validAmount) {
+        document.getElementById('bad').hidden = false;
+        return;
+      }
+
+      var rupees = '₹' + Number(amount).toLocaleString('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+      document.getElementById('title').textContent = 'Pay ' + rupees + (name ? ' to ' + name : '');
+      document.getElementById('note').textContent = note;
+      document.getElementById('vpa').textContent = vpa;
+
+      var link = 'upi://pay?pa=' + encodeURIComponent(vpa) +
+        (name ? '&pn=' + encodeURIComponent(name) : '') +
+        '&am=' + encodeURIComponent(Number(amount).toFixed(2)) +
+        '&cu=INR&tn=' + encodeURIComponent(note);
+      document.getElementById('pay').href = link;
+      document.getElementById('ok').hidden = false;
+
+      document.getElementById('copy').addEventListener('click', function () {
+        var button = this;
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(vpa).then(function () { button.textContent = 'Copied'; });
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
