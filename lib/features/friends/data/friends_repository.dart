@@ -38,8 +38,7 @@ final memberNameProvider = Provider.autoDispose.family<String, String>((ref, uid
   for (final f in friends) {
     if (f.uid == uid && f.nickname != null) return f.nickname!;
   }
-  final profile = ref.watch(userProfileProvider(uid)).valueOrNull;
-  return profile?.displayName ?? 'Member';
+  return _profileName(ref.watch(userProfileProvider(uid)));
 });
 
 /// Like [memberNameProvider] but never "You" (for third-person messages).
@@ -48,8 +47,14 @@ final realNameProvider = Provider.autoDispose.family<String, String>((ref, uid) 
   for (final f in friends) {
     if (f.uid == uid && f.nickname != null) return f.nickname!;
   }
-  return ref.watch(userProfileProvider(uid)).valueOrNull?.displayName ?? 'Member';
+  return _profileName(ref.watch(userProfileProvider(uid)));
 });
+
+/// A loaded-but-missing profile means the account was deleted.
+String _profileName(AsyncValue<UserProfile?> profile) {
+  if (profile.hasValue && profile.value == null) return 'Deleted user';
+  return profile.valueOrNull?.displayName ?? 'Member';
+}
 
 enum FriendRequestResult { sent, accepted }
 

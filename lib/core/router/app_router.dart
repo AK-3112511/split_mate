@@ -18,6 +18,7 @@ import '../../features/groups/presentation/join_group_screen.dart';
 import '../../features/home/presentation/home_screen.dart';
 import '../../features/notifications/presentation/notifications_screen.dart';
 import '../../features/personal_expenses/presentation/add_expense_screen.dart';
+import '../../features/profile/presentation/delete_account_screen.dart';
 import '../../features/profile/presentation/personal_info_screen.dart';
 import '../../features/profile/presentation/profile_screen.dart';
 import '../../features/recap/presentation/recap_screen.dart';
@@ -124,6 +125,7 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(path: '/recurring', builder: (_, __) => const RecurringScreen()),
       GoRoute(path: '/receipts', builder: (_, __) => const ReceiptsVaultScreen()),
       GoRoute(path: '/personal-info', builder: (_, __) => const PersonalInfoScreen()),
+      GoRoute(path: '/delete-account', builder: (_, __) => const DeleteAccountScreen()),
       GoRoute(
         path: '/recap',
         builder: (_, s) {

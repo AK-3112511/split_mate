@@ -1,5 +1,6 @@
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:material_ui/material_ui.dart';
+import '../../../../core/legal.dart';
 import '../../../../core/theme/aurora_colors.dart';
 import '../../../../core/theme/tokens.dart';
 import '../../../../shared_widgets/buttons.dart';
@@ -37,6 +38,23 @@ class TermsLine extends StatelessWidget {
   }
 }
 
+/// Opens the full privacy policy in the browser.
+class PrivacyPolicyLink extends StatelessWidget {
+  const PrivacyPolicyLink({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: TextButton.icon(
+        onPressed: openPrivacyPolicy,
+        icon: const Icon(Icons.open_in_new_rounded, size: 16),
+        label: const Text('Read the full privacy policy'),
+      ),
+    );
+  }
+}
+
 /// Terms for someone whose account is being created outside the sign-up
 /// screen (a first "Continue with Google" from login). True only on "I agree".
 Future<bool> askToAcceptTerms(BuildContext context) async {
@@ -47,6 +65,7 @@ Future<bool> askToAcceptTerms(BuildContext context) async {
       subtitle: 'Accept the terms to create your account.',
       children: [
         for (final line in termsSummary) TermsLine(line),
+        const PrivacyPolicyLink(),
         const SizedBox(height: Space.sm),
         PrimaryButton(label: 'I agree', onPressed: () => Navigator.of(ctx).pop(true)),
         const SizedBox(height: Space.xs),

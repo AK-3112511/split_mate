@@ -86,6 +86,7 @@ class _SignupScreenState extends ConsumerState<SignupScreen> {
         title: 'Terms & privacy, in short',
         children: [
           for (final line in termsSummary) TermsLine(line),
+          const PrivacyPolicyLink(),
           const SizedBox(height: Space.sm),
           PrimaryButton(
             label: 'I agree',
