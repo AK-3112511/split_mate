@@ -8,6 +8,7 @@ import '../../../../shared_widgets/amount_text.dart';
 import '../../../../shared_widgets/avatars.dart';
 import '../../../../shared_widgets/bits.dart';
 import '../../../../shared_widgets/cards.dart';
+import '../../../../shared_widgets/feedback.dart';
 import '../../../../shared_widgets/motion.dart';
 import '../../../../shared_widgets/states.dart';
 import '../../../auth/data/auth_repository.dart';
@@ -19,6 +20,7 @@ import '../../domain/group_expense_model.dart';
 import '../../domain/group_model.dart';
 import '../../domain/guest.dart';
 import '../widgets/settle_up.dart';
+import '../widgets/share_balances.dart';
 
 class BalancesTab extends ConsumerStatefulWidget {
   final GroupModel group;
@@ -96,6 +98,17 @@ class _BalancesTabState extends ConsumerState<BalancesTab> with AutomaticKeepAli
                     child: Row(
                       children: [
                         Expanded(child: Text(_simplified ? 'Fewest payments' : 'Who owes whom', style: context.text.titleMedium)),
+                        IconButton(
+                          tooltip: 'Share balances',
+                          icon: const Icon(Icons.ios_share_rounded),
+                          onPressed: () => showShareBalancesSheet(
+                            context,
+                            group: widget.group,
+                            debts: debts,
+                            simplified: _simplified,
+                            expenses: expenses,
+                          ),
+                        ),
                         Text('Simplify', style: context.text.labelMedium),
                         Switch(value: _simplified, onChanged: (v) => setState(() => _simplified = v)),
                       ],
@@ -216,13 +229,20 @@ class _DebtCard extends ConsumerWidget {
                     ),
                     const SizedBox(width: Space.sm),
                   ],
-                  if (owedToMe && !isGuestId(debt.fromUid)) ...[
+                  if (owedToMe) ...[
                     Expanded(
-                      child: OutlinedButton.icon(
-                        onPressed: canRemind ? () => sendReminder(ref, group: group, debt: debt) : null,
-                        icon: Icon(canRemind ? Icons.notifications_active_outlined : Icons.check_rounded, size: 18),
-                        label: Text(canRemind ? 'Remind' : 'Reminded'),
-                      ),
+                      child: isGuestId(debt.fromUid)
+                          // Guests have no SplitMate inbox: WhatsApp only.
+                          ? OutlinedButton.icon(
+                              onPressed: () => remindOnWhatsApp(ref, group: group, debt: debt),
+                              icon: const Icon(Icons.chat_rounded, size: 18),
+                              label: const Text('WhatsApp'),
+                            )
+                          : OutlinedButton.icon(
+                              onPressed: () => _chooseReminder(context, ref, canRemind),
+                              icon: const Icon(Icons.notifications_active_outlined, size: 18),
+                              label: const Text('Remind'),
+                            ),
                     ),
                     const SizedBox(width: Space.sm),
                   ],
@@ -244,5 +264,35 @@ class _DebtCard extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  /// Members can be reminded in SplitMate (once a day) or on WhatsApp.
+  Future<void> _chooseReminder(BuildContext context, WidgetRef ref, bool canRemind) async {
+    final name = ref.read(realNameProvider(debt.fromUid));
+    final choice = await showAppSheet<String>(
+      context,
+      builder: (ctx) => SheetBody(
+        title: 'Remind $name',
+        children: [
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.notifications_active_outlined),
+            title: const Text('In SplitMate'),
+            subtitle: Text(canRemind ? 'Sends them a notification in the app' : 'Already reminded today'),
+            enabled: canRemind,
+            onTap: () => Navigator.of(ctx).pop('app'),
+          ),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.chat_rounded),
+            title: const Text('On WhatsApp'),
+            subtitle: const Text('Opens WhatsApp with a message and a pay link'),
+            onTap: () => Navigator.of(ctx).pop('whatsapp'),
+          ),
+        ],
+      ),
+    );
+    if (choice == 'app') await sendReminder(ref, group: group, debt: debt);
+    if (choice == 'whatsapp') await remindOnWhatsApp(ref, group: group, debt: debt);
   }
 }
