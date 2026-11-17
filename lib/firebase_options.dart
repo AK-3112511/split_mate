@@ -55,7 +55,7 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyAw9WkMcBSkzSbAVCoiMbp0WoExvMy12ZM',
-    appId: '1:963239790335:android:3c02e893331e3e79dcaeca',
+    appId: '1:963239790335:android:fefd1dd54d86a324dcaeca',
     messagingSenderId: '963239790335',
     projectId: 'splitmate-6b600',
     storageBucket: 'splitmate-6b600.firebasestorage.app',
