@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.ak3112511.splitmate",
+      "sha256_cert_fingerprints": [
+        "2F:E5:29:1E:A2:00:52:1C:40:BD:3A:4E:C7:F4:32:30:8C:20:2C:DF:17:1D:C4:9F:14:69:A3:5D:1F:D7:06:CD"
+      ]
+    }
+  }
+]

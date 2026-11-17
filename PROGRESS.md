@@ -194,6 +194,14 @@ Test group **TEST R2** (created by B, A invited) plus a solo **TEST Solo** for a
 - Verified on device: an account owing ₹20 is blocked ("Settle up first"); test account qwer deleted (Google confirmation), and signing in with its Google account again is treated as a brand-new user. Policy link opens in the browser.
 - Found during testing: an email account later used with Google sign-in has both methods; the screen first insisted on the password → now uses the current sign-in method and offers the other.
 
+### Tappable invite links — ✅ 2026-11-17
+- Group invites are now shared as `https://splitmate-6b600.web.app/join?code=XXXXXX` (WhatsApp makes these tappable; `splitmate://` links weren't). The old `splitmate://join` links still work.
+- Android App Link: `autoVerify` intent filter for `/join` on `splitmate-6b600.web.app`, verified by `hosting/.well-known/assetlinks.json` (release key SHA-256 only). Firebase Hosting now publishes dot-folders (ignore list no longer hides `.well-known`).
+- Without the app (or in a browser), `/join` shows the code with Copy, **Open in SplitMate** (Android intent link, falls back to the download page) and **Download SplitMate**, plus manual steps.
+- Verified: Google's Digital Asset Links API reads the statement; `pm get-app-links` → `verified`; an https invite opens the app directly (no browser, no chooser), survives sign-in and lands on the invite screen; the web page's button opens the app; a real invite sent in WhatsApp was tappable and opened SplitMate.
+- Needs v2.0.3 installed to open links directly; older versions get the web page, whose button still opens the app. If the app later uses Play App Signing, add Play's SHA-256 to `assetlinks.json`.
+- Version 2.0.3+6.
+
 ## Manual end-to-end checklist (Phase 7)
 
 Two test accounts (A, B) on an Android emulator.

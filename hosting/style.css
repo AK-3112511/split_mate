@@ -46,3 +46,15 @@ a { color: var(--link); }
   box-shadow: 4px 4px 0 #16130f;
 }
 .links { list-style: none; padding: 0; }
+.button.secondary { background: transparent; color: var(--text); border-color: var(--border); box-shadow: 4px 4px 0 var(--border); margin-left: 8px; }
+.code-box {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  margin: 12px 0 8px; padding: 14px 16px;
+  border: 2.5px solid var(--border); border-radius: 14px;
+}
+.code { font-size: 1.6rem; font-weight: 800; letter-spacing: 0.2em; }
+.copy {
+  margin-left: auto; padding: 6px 14px; font: inherit; font-weight: 700;
+  background: transparent; color: var(--text);
+  border: 2px solid var(--border); border-radius: 10px; cursor: pointer;
+}

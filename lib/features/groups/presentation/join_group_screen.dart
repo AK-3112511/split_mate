@@ -16,7 +16,7 @@ final _codePreviewProvider = FutureProvider.autoDispose.family<GroupCodeInfo, St
   return ref.watch(groupsRepositoryProvider).lookupCode(code);
 });
 
-/// Opened from an invite link (splitmate://join?code=…).
+/// Opened from an invite link (https://…/join?code=… or splitmate://join?code=…).
 class JoinGroupScreen extends ConsumerStatefulWidget {
   final String code;
   const JoinGroupScreen({super.key, required this.code});

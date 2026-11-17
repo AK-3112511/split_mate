@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:share_plus/share_plus.dart';
+import '../../../core/legal.dart';
 import '../../../core/router/app_router.dart';
 import '../../../core/theme/aurora_colors.dart';
 import '../../../core/theme/tokens.dart';
@@ -29,8 +30,8 @@ import 'tabs/stats_tab.dart';
 import 'widgets/group_expense_widgets.dart';
 
 String groupShareText(GroupModel g) =>
-    'Join "${g.name}" on SplitMate 💸\n\nTap: splitmate://join?groupId=${g.groupId}&code=${g.inviteCode}\n'
-    'or open SplitMate → Groups → Join with a code → ${g.inviteCode}';
+    'Join "${g.name}" on SplitMate 💸\n\n${groupInviteLink(g.inviteCode ?? '')}\n\n'
+    'Or open SplitMate → Groups → Join with a code → ${g.inviteCode}';
 
 class GroupDetailScreen extends ConsumerStatefulWidget {
   final String groupId;
