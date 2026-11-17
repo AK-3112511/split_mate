@@ -202,6 +202,13 @@ Test group **TEST R2** (created by B, A invited) plus a solo **TEST Solo** for a
 - Needs v2.0.3 installed to open links directly; older versions get the web page, whose button still opens the app. If the app later uses Play App Signing, add Play's SHA-256 to `assetlinks.json`.
 - Version 2.0.3+6.
 
+### Friends without the app (guest members) — ✅ 2026-11-17
+- Any member can add someone who isn't on SplitMate yet ("Add someone without the app" in Members, or the **Add** bubble in Add expense). Guests take part in every split mode, balances, stats and the PDF; you can record cash payments with them. No UPI button, reminders or notifications for guests.
+- Taking over a spot: **"Send Rahul their link"** shares an invite made for that guest (`/join?code=…&guest=…`); opening it joins the group and asks **"Are you Rahul?"** with the guest's balance. As a fallback, whoever added the guest (or an admin) can use **"They already joined…"** to move the guest to a member. Either way every expense, payment, item split and recurring template moves to the real account (shares are merged if that person already had one), the guest is removed, the activity log and the group are told, and the new owner's personal ledger updates.
+- Data: `guests` map on the group doc (`guest_…` ids); rules allow members to change only that field (deployed). Guest ids never get group access and are skipped for notifications.
+- Verified on device: guest added, ₹300 split with them, ₹50 cash received; claim link opened while signed out survived sign-in and "Are you Rahul?" moved everything (claimant owed ₹100, payment and share now theirs, activity "took over Rahul's spot", group notified); second guest linked by hand to an existing member and their shares merged (₹30 + ₹30 → ₹60). Test group, ledger entries and notifications cleaned up.
+- Version 2.1.0+7.
+
 ## Manual end-to-end checklist (Phase 7)
 
 Two test accounts (A, B) on an Android emulator.

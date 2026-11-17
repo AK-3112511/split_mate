@@ -13,6 +13,7 @@ import '../../receipts/data/receipts_repository.dart';
 import '../domain/group_activity_model.dart';
 import '../domain/group_expense_model.dart';
 import '../domain/group_model.dart';
+import '../domain/guest.dart';
 import 'group_mirror_service.dart';
 
 /// Real (non-template, non-deleted) expenses and payments, newest first.
@@ -102,6 +103,68 @@ class GroupExpensesRepository {
             .map((d) => GroupExpenseModel.fromMap(d.data(), d.id))
             .where((e) => !e.isDeleted)
             .toList()));
+  }
+
+  /// Current (non-deleted, non-template) expenses, read once from the server.
+  Future<List<GroupExpenseModel>> fetchExpenses(String groupId) async {
+    final snap = await _expenses(groupId).where('isDeleted', isEqualTo: false).get(const GetOptions(source: Source.server));
+    return snap.docs
+        .map((d) => GroupExpenseModel.fromMap(d.data(), d.id))
+        .where((e) => !e.isRecurringTemplate)
+        .toList();
+  }
+
+  /// Moves everything [guestId] paid or owed in [group] to the member [toUid],
+  /// then removes the guest. Safe to retry: moved expenses no longer match.
+  Future<void> takeOverGuest(GroupModel group, String guestId, {required String toUid, required String toName}) async {
+    final me = _me;
+    final guest = group.guests[guestId];
+    if (guest == null) throw const AppException('That spot has already been taken over.');
+    if (!group.isMember(toUid)) throw const AppException('They need to join the group first.');
+
+    final snap = await _expenses(group.groupId).get(const GetOptions(source: Source.server));
+    final updates = <DocumentReference<Map<String, dynamic>>, Map<String, dynamic>>{};
+    for (final d in snap.docs) {
+      final u = guestTakeoverUpdate(d.data(), guestId, toUid);
+      if (u != null) updates[d.reference] = {...u, 'updatedAt': FieldValue.serverTimestamp()};
+    }
+    final entries = updates.entries.toList();
+    for (var i = 0; i < entries.length; i += 400) {
+      final batch = _db.batch();
+      for (final e in entries.skip(i).take(400)) {
+        batch.update(e.key, e.value);
+      }
+      await batch.commit();
+    }
+
+    final self = toUid == me;
+    final batch = _db.batch();
+    batch.update(_db.collection('groups').doc(group.groupId), {
+      'guests.$guestId': FieldValue.delete(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    _activity(
+      batch,
+      group.groupId,
+      GroupActivityModel.memberJoined,
+      self ? '$_myName took over ${guest.name}\'s spot' : '$_myName moved ${guest.name}\'s expenses to $toName',
+    );
+    await batch.commit();
+
+    runInBackground(() => _notify.send(
+          recipients: group.members.where((m) => m != me),
+          type: NotificationModel.groupEdited,
+          message: self
+              ? '$_myName joined "${group.name}" and took over ${guest.name}\'s expenses'
+              : '$_myName moved ${guest.name}\'s expenses in "${group.name}" to $toName',
+          groupId: group.groupId,
+          groupName: group.name,
+        ), label: 'guest takeover notify');
+    if (self) {
+      try {
+        await _mirrors.scanAll();
+      } catch (_) {}
+    }
   }
 
   Stream<List<GroupActivityModel>> streamActivity(String groupId) {

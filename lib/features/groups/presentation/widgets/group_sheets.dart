@@ -214,7 +214,7 @@ class _InviteFriendsState extends ConsumerState<_InviteFriends> {
         .toList();
     return SheetBody(
       title: 'Invite friends',
-      subtitle: 'They\'ll get an invite to accept. Not on SplitMate yet? Share the group code instead.',
+      subtitle: 'They\'ll get an invite to accept. Not on SplitMate yet? Add them below Members with "Add someone without the app".',
       children: [
         if (candidates.isEmpty)
           Padding(

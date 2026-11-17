@@ -238,7 +238,7 @@ class _GroupCard extends ConsumerWidget {
                   const SizedBox(height: 8),
                   Row(
                     children: [
-                      AvatarStack(uids: group.members, size: 22),
+                      AvatarStack(uids: group.participants, size: 22),
                       const SizedBox(width: Space.xs),
                       Flexible(child: pill),
                     ],

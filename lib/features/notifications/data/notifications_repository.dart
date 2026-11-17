@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/utils/firestore_helper.dart';
 import '../../auth/data/auth_repository.dart';
+import '../../groups/domain/guest.dart';
 import '../domain/notification_model.dart';
 
 /// Newest first, capped for display.
@@ -66,7 +67,8 @@ class NotificationsRepository {
   }) async {
     final me = _uid;
     if (me == null) return;
-    final targets = recipients.where((r) => r.isNotEmpty && r != me).toSet();
+    // Guests (not on SplitMate yet) have no inbox.
+    final targets = recipients.where((r) => r.isNotEmpty && r != me && !isGuestId(r)).toSet();
     if (targets.isEmpty) return;
     for (final chunk in chunked(targets.toList(), 400)) {
       final batch = _db.batch();

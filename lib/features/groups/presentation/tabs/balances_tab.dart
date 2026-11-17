@@ -17,6 +17,7 @@ import '../../data/balances_providers.dart';
 import '../../data/group_expenses_repository.dart';
 import '../../domain/group_expense_model.dart';
 import '../../domain/group_model.dart';
+import '../../domain/guest.dart';
 import '../widgets/settle_up.dart';
 
 class BalancesTab extends ConsumerStatefulWidget {
@@ -157,7 +158,8 @@ class _DebtCard extends ConsumerWidget {
     final to = ref.watch(memberNameProvider(debt.toUid));
     final iOwe = debt.fromUid == me;
     final owedToMe = debt.toUid == me;
-    final creditorUpi = iOwe ? ref.watch(userProfileProvider(debt.toUid)).valueOrNull?.upiId : null;
+    // Guests (not on SplitMate yet) have no UPI ID and can't get reminders.
+    final creditorUpi = iOwe && !isGuestId(debt.toUid) ? ref.watch(userProfileProvider(debt.toUid)).valueOrNull?.upiId : null;
     final lastReminder = owedToMe
         ? ref.watch(lastReminderProvider((groupId: group.groupId, recipientUid: debt.fromUid))).valueOrNull
         : null;
@@ -214,7 +216,7 @@ class _DebtCard extends ConsumerWidget {
                     ),
                     const SizedBox(width: Space.sm),
                   ],
-                  if (owedToMe) ...[
+                  if (owedToMe && !isGuestId(debt.fromUid)) ...[
                     Expanded(
                       child: OutlinedButton.icon(
                         onPressed: canRemind ? () => sendReminder(ref, group: group, debt: debt) : null,

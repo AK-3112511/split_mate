@@ -7,6 +7,7 @@ import '../../auth/data/auth_repository.dart';
 import '../../notifications/data/notifications_repository.dart';
 import '../../notifications/domain/notification_model.dart';
 import '../domain/group_activity_model.dart';
+import '../domain/guest.dart';
 import '../domain/group_invite_model.dart';
 import '../domain/group_model.dart';
 
@@ -49,6 +50,15 @@ class GroupCodeInfo {
   final String code;
   const GroupCodeInfo(this.groupId, this.groupName, this.code);
 }
+
+/// Names of guests (people not on SplitMate yet) across all my groups.
+final guestNamesProvider = Provider<Map<String, String>>((ref) {
+  final groups = ref.watch(groupsStreamProvider).valueOrNull ?? const [];
+  return {
+    for (final g in groups)
+      for (final e in g.guests.entries) e.key: e.value.name,
+  };
+});
 
 final groupsRepositoryProvider = Provider<GroupsRepository>((ref) {
   return GroupsRepository(
@@ -317,6 +327,13 @@ class GroupsRepository {
     await batch.commit();
   }
 
+  /// Fresh copy of a group from the server (null if gone or not visible).
+  Future<GroupModel?> fetchGroup(String groupId) async {
+    final snap = await _group(groupId).get(const GetOptions(source: Source.server));
+    final data = snap.data();
+    return data == null ? null : GroupModel.fromMap(data, snap.id);
+  }
+
   Future<JoinResult> joinByCode(String rawCode) async {
     final me = _me;
     final info = await lookupCode(rawCode);
@@ -384,6 +401,38 @@ class GroupsRepository {
         groupName: group.name,
       );
     }, label: 'remove notify');
+  }
+
+  // ── Guests (people not on SplitMate yet) ─────────────────────────────────
+
+  /// Adds someone who isn't on SplitMate yet; returns their guest id.
+  Future<String> addGuest(GroupModel group, String name) async {
+    final me = _me;
+    final clean = name.trim();
+    if (clean.isEmpty) throw const AppException('Enter their name.');
+    if (clean.length > 40) throw const AppException('Keep the name under 40 characters.');
+    final id = newGuestId();
+    final batch = _db.batch();
+    batch.update(_group(group.groupId), {
+      'guests.$id': {'name': clean, 'addedBy': me, 'createdAt': FieldValue.serverTimestamp()},
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    _activity(batch, group.groupId, GroupActivityModel.memberJoined, '$_myName added $clean (not on SplitMate yet)');
+    await commitWithTimeout(batch.commit());
+    return id;
+  }
+
+  /// Removes a guest who isn't part of any expense.
+  Future<void> removeGuest(GroupModel group, String guestId) async {
+    final guest = group.guests[guestId];
+    if (guest == null) return;
+    final batch = _db.batch();
+    batch.update(_group(group.groupId), {
+      'guests.$guestId': FieldValue.delete(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    _activity(batch, group.groupId, GroupActivityModel.memberRemoved, '$_myName removed ${guest.name}');
+    await commitWithTimeout(batch.commit());
   }
 
   Future<void> leaveGroup(GroupModel group) async {

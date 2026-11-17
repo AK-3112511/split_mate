@@ -5,6 +5,8 @@ import '../../../core/utils/firestore_helper.dart';
 import '../../../core/utils/write_helper.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../auth/domain/user_profile.dart';
+import '../../groups/data/groups_repository.dart' show guestNamesProvider;
+import '../../groups/domain/guest.dart';
 import '../../notifications/data/notifications_repository.dart';
 import '../../notifications/domain/notification_model.dart';
 import '../domain/friend_model.dart';
@@ -34,6 +36,7 @@ final incomingFriendRequestCountProvider = Provider<int>((ref) {
 final memberNameProvider = Provider.autoDispose.family<String, String>((ref, uid) {
   final me = ref.watch(currentUidProvider);
   if (uid == me) return 'You';
+  if (isGuestId(uid)) return ref.watch(guestNamesProvider)[uid] ?? 'Guest';
   final friends = ref.watch(friendsStreamProvider).valueOrNull ?? const [];
   for (final f in friends) {
     if (f.uid == uid && f.nickname != null) return f.nickname!;
@@ -43,6 +46,7 @@ final memberNameProvider = Provider.autoDispose.family<String, String>((ref, uid
 
 /// Like [memberNameProvider] but never "You" (for third-person messages).
 final realNameProvider = Provider.autoDispose.family<String, String>((ref, uid) {
+  if (isGuestId(uid)) return ref.watch(guestNamesProvider)[uid] ?? 'Guest';
   final friends = ref.watch(friendsStreamProvider).valueOrNull ?? const [];
   for (final f in friends) {
     if (f.uid == uid && f.nickname != null) return f.nickname!;

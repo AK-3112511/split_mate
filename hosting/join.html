@@ -38,9 +38,13 @@
 
   <script>
     (function () {
-      var raw = new URLSearchParams(location.search).get('code') || '';
+      var params = new URLSearchParams(location.search);
+      var raw = params.get('code') || '';
       var code = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
       if (!code) return;
+      // A link made for one person ("take over your spot") carries their guest id.
+      var guest = (params.get('guest') || '').toLowerCase().replace(/[^a-z0-9_]/g, '').slice(0, 40);
+      var query = 'code=' + code + (guest ? '&guest=' + guest : '');
 
       document.getElementById('intro').textContent = 'Someone shared a SplitMate group with you. Tap below to join.';
       document.getElementById('code').textContent = code;
@@ -50,11 +54,11 @@
       var download = 'https://github.com/AK-3112511/split_mate/releases/latest';
       var open = document.getElementById('open');
       if (/Android/i.test(navigator.userAgent)) {
-        open.href = 'intent://join?code=' + code +
+        open.href = 'intent://join?' + query +
           '#Intent;scheme=splitmate;package=com.ak3112511.splitmate;S.browser_fallback_url=' +
           encodeURIComponent(download) + ';end';
       } else {
-        open.href = 'splitmate://join?code=' + code;
+        open.href = 'splitmate://join?' + query;
       }
       open.hidden = false;
 
