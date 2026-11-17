@@ -178,6 +178,14 @@ Test group **TEST R2** (created by B, A invited) plus a solo **TEST Solo** for a
 - Profile: removed the "SplitMate 2.0 · Made with 💜" footer.
 - Home: new **All time** range chip in front of Today / This week / This month / Custom (labelled "All time" so it isn't confused with the category row's "All"). Empty state reads "No expenses yet". Verified on device.
 
+### Release signing + app ID — ✅ 2026-11-17
+- Release builds are now signed with a real release key instead of the debug key. Gradle reads it from `android/key.properties` (git-ignored); the keystore lives outside the repo. Without that file a release build still works but is debug-signed and prints a warning.
+- App ID changed from the placeholder `com.example.split_mate` (rejected by the Play Store) to **`com.ak3112511.splitmate`**, registered as a new Android app in Firebase (`…:android:fefd1dd54d86a324dcaeca`); `google-services.json` and `firebase_options.dart` updated. The Kotlin namespace is unchanged.
+- Release and debug SHA-1 / SHA-256 fingerprints added to the new Firebase app. Release SHA-1 `54:2E:4C:A7:FB:DB:16:59:A4:F6:97:3B:9F:30:66:63:BA:AA:36:40`.
+- Version 2.0.1+4. Verified on device: installs as the new app, Google and email sign-in work, and a later build installs as an update.
+- Existing installs (old ID + debug key) can't update to this; users install the new app and uninstall the old one. Accounts and data are unaffected.
+- If the app goes to the Play Store with Play App Signing, add Play's app-signing SHA-1 to Firebase as well.
+
 ## Manual end-to-end checklist (Phase 7)
 
 Two test accounts (A, B) on an Android emulator.
