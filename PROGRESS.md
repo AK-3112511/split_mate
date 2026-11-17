@@ -186,6 +186,14 @@ Test group **TEST R2** (created by B, A invited) plus a solo **TEST Solo** for a
 - Existing installs (old ID + debug key) can't update to this; users install the new app and uninstall the old one. Accounts and data are unaffected.
 - If the app goes to the Play Store with Play App Signing, add Play's app-signing SHA-1 to Firebase as well.
 
+### Account deletion + privacy policy — ✅ 2026-11-17
+- **Delete account** (Profile → Delete account, under Sign out): explains what's deleted and what stays; **blocked while you owe anyone** (lists who and how much, with "Go to groups"); warns if others owe you; confirms with the way you signed in (password or Google, with a switch when an account has both).
+- Deletion (all on the device, no Cloud Functions): leaves every group (hands admin to another member first if needed; a solo group is soft-deleted), removes friendships both ways, declines received invites, deletes sent invites and own notifications, deletes personal expenses / receipts / reminders / private profile, frees the friend code, deletes the profile, then the sign-in. Shared group records stay; the person shows as **"Deleted user"**.
+- Rules: the owner may now delete their own `users/{uid}` profile (deployed).
+- **Privacy policy** at https://splitmate-6b600.web.app/privacy, deletion info at https://splitmate-6b600.web.app/delete-account, small home page at https://splitmate-6b600.web.app (Firebase Hosting, `hosting/`). Contact: splitmate.support123@gmail.com. Linked from Profile, the delete screen and both Terms sheets.
+- Verified on device: an account owing ₹20 is blocked ("Settle up first"); test account qwer deleted (Google confirmation), and signing in with its Google account again is treated as a brand-new user. Policy link opens in the browser.
+- Found during testing: an email account later used with Google sign-in has both methods; the screen first insisted on the password → now uses the current sign-in method and offers the other.
+
 ## Manual end-to-end checklist (Phase 7)
 
 Two test accounts (A, B) on an Android emulator.

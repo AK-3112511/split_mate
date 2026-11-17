@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:material_ui/material_ui.dart';
+import '../../../core/legal.dart';
 import '../../../core/theme/aurora_colors.dart';
 import '../../../core/theme/theme_mode_provider.dart';
 import '../../../core/theme/tokens.dart';
@@ -139,6 +140,8 @@ class ProfileScreen extends ConsumerWidget {
                     trailing: unread > 0 ? Badge(label: Text('$unread')) : null),
                 if (isPasswordUser)
                   tile(Icons.lock_reset_rounded, 'Change password', onTap: () => _changePassword(context, ref)),
+                tile(Icons.privacy_tip_rounded, 'Privacy policy',
+                    trailing: Icon(Icons.open_in_new_rounded, color: c.textMuted), onTap: openPrivacyPolicy),
               ], 1),
               section('Money', [
                 tile(Icons.category_rounded, 'Categories & budgets', onTap: () => context.push('/categories')),
@@ -196,6 +199,14 @@ class ProfileScreen extends ConsumerWidget {
                       Toast.error(e);
                     }
                   },
+                ),
+              ),
+              const SizedBox(height: Space.sm),
+              Center(
+                child: TextButton(
+                  onPressed: () => context.push('/delete-account'),
+                  style: TextButton.styleFrom(foregroundColor: c.negative),
+                  child: const Text('Delete account'),
                 ),
               ),
               const SizedBox(height: Space.lg),

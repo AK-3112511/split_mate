@@ -62,3 +62,6 @@ Desktop.ini
 
 # Gradle problem reports
 /android/build/
+
+# Firebase CLI deploy cache
+.firebase/

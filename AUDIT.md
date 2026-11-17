@@ -191,6 +191,8 @@ Severity: **P0** = wrong money / crash / security · **P1** = broken flow · **P
 | E-12 | P1 | "Continue with Google" on the login screen creates a new account without accepting the Terms | auth/presentation/login_screen.dart, auth/data/auth_repository.dart, core/session/bootstrap.dart | ✅ |
 | E-13 | P1 | Sign-out location is restored for the next sign-in, even for another account (e.g. lands on someone else's group) | core/router/app_router.dart | ✅ |
 
+| E-14 | P2 | Delete-account confirmation asked for a password on an account signed in with Google (both methods linked) | profile/presentation/delete_account_screen.dart | ✅ |
+
 ## Security rules — manual verification matrix
 
 The Firebase emulator needs Java (not installed on this machine), so rules were checked by review against every write path in the code. Before deploying, run these with the emulator or two test accounts (A = member, B = non-member):

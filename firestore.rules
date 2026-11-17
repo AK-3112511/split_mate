@@ -50,7 +50,8 @@ service cloud.firestore {
       allow update: if signedIn() && me() == uid
         && (!('appCode' in changed()) || ownsCode())
         && (!('email' in changed()) || noPublicEmail());
-      allow delete: if false;
+      // Account deletion: only the owner can delete their own profile.
+      allow delete: if signedIn() && me() == uid;
 
       // Personal expenses, receipts, reminders, private profile: owner only.
       match /{collection}/{docId} {

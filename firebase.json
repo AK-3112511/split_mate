@@ -4,7 +4,7 @@
       "android": {
         "default": {
           "projectId": "splitmate-6b600",
-          "appId": "1:963239790335:android:3c02e893331e3e79dcaeca",
+          "appId": "1:963239790335:android:fefd1dd54d86a324dcaeca",
           "fileOutput": "android/app/google-services.json"
         }
       },
@@ -12,7 +12,7 @@
         "lib/firebase_options.dart": {
           "projectId": "splitmate-6b600",
           "configurations": {
-            "android": "1:963239790335:android:3c02e893331e3e79dcaeca"
+            "android": "1:963239790335:android:fefd1dd54d86a324dcaeca"
           }
         }
       }
@@ -20,5 +20,14 @@
   },
   "firestore": {
     "rules": "firestore.rules"
+  },
+  "hosting": {
+    "public": "hosting",
+    "cleanUrls": true,
+    "trailingSlash": false,
+    "ignore": [
+      "firebase.json",
+      "**/.*"
+    ]
   }
 }
