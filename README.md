@@ -10,7 +10,7 @@
 
 ## Download
 
-**[Download SplitMate v2.1.0 for Android (APK)](https://github.com/AK-3112511/split_mate/releases/download/v2.1.0/app-release.apk)**
+**[Download SplitMate v2.2.0 for Android (APK)](https://github.com/AK-3112511/split_mate/releases/download/v2.2.0/app-release.apk)**
 
 1. Open the link on your Android phone and download the APK.
 2. When Android asks, allow your browser or file manager to install apps from this source.
