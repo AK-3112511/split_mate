@@ -24,7 +24,8 @@ class _SplitMateAppState extends ConsumerState<SplitMateApp> {
   void initState() {
     super.initState();
     _lifecycle = AppLifecycleListener(onResume: () => ref.read(sessionBootstrapProvider).onResumed());
-    // Deep links: splitmate://join?groupId=…&code=…  (also accepts /join?code=…)
+    // Invite links: https://splitmate-6b600.web.app/join?code=… (App Link) and
+    // the older splitmate://join?code=… both end up here.
     _appLinks.getInitialLink().then((uri) {
       if (uri != null) _handleLink(uri);
     }).catchError((_) {});

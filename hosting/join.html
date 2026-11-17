@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Join a group · SplitMate</title>
+  <meta name="description" content="You've been invited to a SplitMate group." />
+  <meta property="og:title" content="Join my group on SplitMate" />
+  <meta property="og:description" content="Split bills and settle up with friends. Tap to join the group." />
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main>
+    <p class="brand"><a href="/">SplitMate</a></p>
+    <h1>You're invited to a group</h1>
+    <p class="lead" id="intro">Someone shared a SplitMate group with you.</p>
+
+    <div class="code-box" id="code-box" hidden>
+      <span class="muted">Group code</span>
+      <span class="code" id="code"></span>
+      <button type="button" class="copy" id="copy">Copy</button>
+    </div>
+
+    <p>
+      <a class="button" id="open" href="#" hidden>Open in SplitMate</a>
+      <a class="button secondary" href="https://github.com/AK-3112511/split_mate/releases/latest">Download SplitMate</a>
+    </p>
+
+    <h2>Joining by hand</h2>
+    <ol>
+      <li>Install SplitMate on your Android phone and sign in.</li>
+      <li>Go to <strong>Groups</strong> and tap <strong>Join with a code</strong>.</li>
+      <li>Enter the code <strong id="code-inline">from the invite</strong>.</li>
+    </ol>
+
+    <p class="muted"><a href="/privacy">Privacy policy</a></p>
+  </main>
+
+  <script>
+    (function () {
+      var raw = new URLSearchParams(location.search).get('code') || '';
+      var code = raw.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 12);
+      if (!code) return;
+
+      document.getElementById('intro').textContent = 'Someone shared a SplitMate group with you. Tap below to join.';
+      document.getElementById('code').textContent = code;
+      document.getElementById('code-inline').textContent = code;
+      document.getElementById('code-box').hidden = false;
+
+      var download = 'https://github.com/AK-3112511/split_mate/releases/latest';
+      var open = document.getElementById('open');
+      if (/Android/i.test(navigator.userAgent)) {
+        open.href = 'intent://join?code=' + code +
+          '#Intent;scheme=splitmate;package=com.ak3112511.splitmate;S.browser_fallback_url=' +
+          encodeURIComponent(download) + ';end';
+      } else {
+        open.href = 'splitmate://join?code=' + code;
+      }
+      open.hidden = false;
+
+      document.getElementById('copy').addEventListener('click', function () {
+        var button = this;
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(code).then(function () { button.textContent = 'Copied'; });
+        }
+      });
+    })();
+  </script>
+</body>
+</html>
