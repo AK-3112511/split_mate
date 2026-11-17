@@ -12,10 +12,13 @@ import '../../../../shared_widgets/feedback.dart';
 import '../../../auth/data/auth_repository.dart';
 import '../../../friends/data/friends_repository.dart';
 import '../../data/balances_providers.dart';
+import '../../data/group_expenses_repository.dart';
 import '../../data/groups_repository.dart';
 import '../../domain/group_model.dart';
+import '../../domain/guest.dart';
 import '../group_detail_screen.dart' show groupShareText;
 import '../widgets/group_sheets.dart';
+import '../widgets/guest_sheets.dart';
 
 class MembersTab extends ConsumerWidget {
   final GroupModel group;
@@ -33,6 +36,7 @@ class MembersTab extends ConsumerWidget {
         final bb = group.isAdmin(b) ? 0 : 1;
         return aa.compareTo(bb);
       });
+    final guests = group.guests.values.toList()..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
 
     return Builder(
       builder: (context) => CustomScrollView(
@@ -96,6 +100,26 @@ class MembersTab extends ConsumerWidget {
           SliverList.builder(
             itemCount: members.length,
             itemBuilder: (_, i) => _MemberRow(group: group, uid: members[i], me: me),
+          ),
+          SliverToBoxAdapter(
+            child: SectionHeader(
+              'Not on SplitMate yet',
+              trailing: guests.isEmpty ? null : Text('${guests.length}', style: context.text.labelMedium),
+            ),
+          ),
+          SliverList.builder(
+            itemCount: guests.length,
+            itemBuilder: (_, i) => _GuestRow(group: group, guest: guests[i], me: me),
+          ),
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(Space.gutter, Space.xs, Space.gutter, 0),
+              child: SecondaryButton(
+                label: 'Add someone without the app',
+                icon: Icons.person_add_alt_1_rounded,
+                onPressed: () => showAddGuestSheet(context, group),
+              ),
+            ),
           ),
           if (pending.isNotEmpty) ...[
             const SliverToBoxAdapter(child: SectionHeader('Invited')),
@@ -239,6 +263,81 @@ class _MemberRow extends ConsumerWidget {
       }
     } catch (e) {
       Toast.error(e);
+    }
+  }
+}
+
+/// Someone added to the group who isn't on SplitMate yet.
+class _GuestRow extends ConsumerWidget {
+  final GroupModel group;
+  final GuestMember guest;
+  final String me;
+  const _GuestRow({required this.group, required this.guest, required this.me});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final c = context.aurora;
+    final balance = ref.watch(groupBalancesProvider(group.groupId)).valueOrNull?.mine[guest.id] ?? 0;
+    final canManage = guest.addedBy == me || group.isAdmin(me);
+    final addedBy = guest.addedBy == me ? 'you' : ref.watch(realNameProvider(guest.addedBy));
+
+    return ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: Space.gutter, vertical: 2),
+      leading: UserAvatar(uid: guest.id, size: 44),
+      title: Row(
+        children: [
+          Flexible(child: Text(guest.name, maxLines: 1, overflow: TextOverflow.ellipsis)),
+          const SizedBox(width: Space.xs),
+          const Pill('Guest'),
+        ],
+      ),
+      subtitle: Text(
+        Money.isZero(balance)
+            ? 'Added by $addedBy'
+            : balance > 0
+                ? 'Owes you ${Money.format(balance)}'
+                : 'You owe ${Money.format(-balance)}',
+        style: context.text.bodySmall?.copyWith(color: Money.isZero(balance) ? c.textMuted : c.amountColor(balance)),
+      ),
+      trailing: PopupMenuButton<String>(
+        tooltip: 'Options for ${guest.name}',
+        onSelected: (v) => _onAction(context, ref, v),
+        itemBuilder: (_) => [
+          PopupMenuItem(value: 'share', child: Text('Send ${guest.name} their link')),
+          if (canManage) const PopupMenuItem(value: 'link', child: Text('They already joined…')),
+          if (canManage) PopupMenuItem(value: 'remove', child: Text('Remove', style: TextStyle(color: c.negative))),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _onAction(BuildContext context, WidgetRef ref, String action) async {
+    switch (action) {
+      case 'share':
+        await shareGuestClaimLink(group, guest);
+      case 'link':
+        await showLinkGuestSheet(context, ref, group, guest);
+      case 'remove':
+        final expenses = ref.read(groupExpensesStreamProvider(group.groupId)).valueOrNull ?? const [];
+        final templates = ref.read(groupTemplatesStreamProvider(group.groupId)).valueOrNull ?? const [];
+        if ([...expenses, ...templates].any((e) => e.involves(guest.id))) {
+          Toast.info('${guest.name} is part of some expenses. If they joined, use "They already joined" instead.');
+          return;
+        }
+        final ok = await confirmAction(
+          context,
+          title: 'Remove ${guest.name}?',
+          message: '${guest.name} isn\'t part of any expense yet.',
+          confirmLabel: 'Remove',
+          destructive: true,
+        );
+        if (!ok) return;
+        try {
+          await ref.read(groupsRepositoryProvider).removeGuest(group, guest.id);
+          Toast.success('${guest.name} removed');
+        } catch (e) {
+          Toast.error(e);
+        }
     }
   }
 }

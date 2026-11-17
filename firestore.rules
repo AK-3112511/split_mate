@@ -131,6 +131,11 @@ service cloud.firestore {
           && request.resource.data.get('admins', []).toSet().difference(adminsOf(resource.data).toSet()).size() == 0
           && (!('isDeleted' in changed()) || request.resource.data.members.size() == 0))
         ||
+        // Any member may add people who aren't on SplitMate yet ("guests"), or
+        // remove one after their expenses moved to a real member. Nothing else.
+        (me() in resource.data.members
+          && changed().hasOnly(['guests', 'updatedAt']))
+        ||
         // Any member may backfill a missing v1 invite code once.
         (me() in resource.data.members
           && changed().hasOnly(['inviteCode', 'updatedAt'])

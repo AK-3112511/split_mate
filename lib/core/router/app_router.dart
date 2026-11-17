@@ -117,7 +117,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/join',
-        builder: (_, s) => JoinGroupScreen(code: s.uri.queryParameters['code'] ?? ''),
+        builder: (_, s) => JoinGroupScreen(
+          code: s.uri.queryParameters['code'] ?? '',
+          guestId: s.uri.queryParameters['guest'],
+        ),
       ),
       GoRoute(path: '/notifications', builder: (_, __) => const NotificationsScreen()),
       GoRoute(path: '/search', builder: (_, __) => const SearchScreen()),

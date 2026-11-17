@@ -31,6 +31,7 @@ import '../data/group_mirror_service.dart';
 import '../data/groups_repository.dart';
 import '../domain/group_expense_model.dart';
 import '../domain/group_model.dart';
+import 'widgets/guest_sheets.dart';
 
 class _ItemDraft {
   final TextEditingController name;
@@ -110,7 +111,7 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
   }
 
   List<String> _people(GroupModel g) {
-    final set = <String>{...g.members};
+    final set = <String>{...g.participants};
     if (_editing != null) {
       set.addAll(_editing!.splits.keys);
       set.add(_editing!.payerUid);
@@ -123,7 +124,7 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
     _newId = ref.read(groupExpensesRepositoryProvider).newExpenseId(group.groupId);
     if (existing == null) {
       _payer = me;
-      _participants.addAll(group.members);
+      _participants.addAll(group.participants);
       return;
     }
     _editing = existing;
@@ -430,13 +431,19 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
               height: 92,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
-                itemCount: people.length,
+                itemCount: people.length + 1,
                 separatorBuilder: (_, __) => const SizedBox(width: Space.sm),
-                itemBuilder: (_, i) => _PersonPick(
-                  uid: people[i],
-                  selected: people[i] == _payer,
-                  onTap: () => setState(() => _payer = people[i]),
-                ),
+                itemBuilder: (_, i) => i == people.length
+                    ? _AddPersonPick(onTap: () async {
+                        // Someone not on SplitMate yet: add them on the spot.
+                        final id = await showAddGuestSheet(context, group);
+                        if (id != null && mounted) setState(() => _participants.add(id));
+                      })
+                    : _PersonPick(
+                        uid: people[i],
+                        selected: people[i] == _payer,
+                        onTap: () => setState(() => _payer = people[i]),
+                      ),
               ),
             ),
             const SizedBox(height: Space.lg),
@@ -456,7 +463,7 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
                 onSelectionChanged: (s) => setState(() {
                   _mode = s.first;
                   if (_mode == SplitMode.itemized && _items.isEmpty) {
-                    _items.add(_ItemDraft(members: {...group.members}));
+                    _items.add(_ItemDraft(members: {...group.participants}));
                   }
                 }),
               ),
@@ -831,6 +838,39 @@ class _PersonRow extends ConsumerWidget {
             ),
             trailing,
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AddPersonPick extends StatelessWidget {
+  final VoidCallback onTap;
+  const _AddPersonPick({required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.aurora;
+    return Semantics(
+      button: true,
+      label: 'Add someone without the app',
+      child: GestureDetector(
+        onTap: onTap,
+        child: SizedBox(
+          width: 68,
+          child: Column(
+            children: [
+              Container(
+                margin: const EdgeInsets.all(3),
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(shape: BoxShape.circle, border: Border.all(color: c.textMuted, width: 2)),
+                child: Icon(Icons.person_add_alt_1_rounded, color: c.textMuted),
+              ),
+              const SizedBox(height: 4),
+              Text('Add', style: context.text.labelMedium?.copyWith(color: c.textMuted, fontWeight: FontWeight.w600)),
+            ],
+          ),
         ),
       ),
     );

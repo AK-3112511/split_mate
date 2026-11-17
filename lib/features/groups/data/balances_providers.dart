@@ -46,7 +46,7 @@ final groupBalancesProvider = Provider.autoDispose.family<AsyncValue<GroupBalanc
   final group = ref.watch(groupDetailsStreamProvider(groupId));
   final expenses = ref.watch(groupExpensesStreamProvider(groupId));
   return expenses.whenData((list) {
-    final members = group.valueOrNull?.members ?? const <String>[];
+    final members = group.valueOrNull?.participants ?? const <String>[];
     return GroupBalances.compute(me, list, members);
   });
 });

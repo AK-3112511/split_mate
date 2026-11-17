@@ -23,6 +23,7 @@ import '../data/group_expenses_repository.dart';
 import '../data/groups_repository.dart';
 import '../domain/group_activity_model.dart';
 import '../domain/group_model.dart';
+import '../domain/guest.dart';
 import 'tabs/balances_tab.dart';
 import 'tabs/expenses_tab.dart';
 import 'tabs/members_tab.dart';
@@ -145,12 +146,12 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> with Sing
                       const SizedBox(height: Space.xs),
                       Row(
                         children: [
-                          AvatarStack(uids: group.members, size: 26),
+                          AvatarStack(uids: group.participants, size: 26),
                           const SizedBox(width: Space.sm),
                           Expanded(
                             child: Text(
                               balances == null
-                                  ? '${group.members.length} members'
+                                  ? '${group.participants.length} members'
                                   : Money.isZero(myNet)
                                       ? 'You\'re all settled'
                                       : myNet > 0
@@ -263,12 +264,16 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> with Sing
     Toast.info('Preparing PDF…');
     try {
       // Fetch every name explicitly so nobody prints as "Member" while loading.
-      final uids = {...group.members, ...expenses.expand((e) => e.splits.keys), ...expenses.map((e) => e.payerUid)};
+      final uids = {...group.participants, ...expenses.expand((e) => e.splits.keys), ...expenses.map((e) => e.payerUid)};
       final friends = ref.read(friendsStreamProvider).valueOrNull ?? const [];
       final authRepo = ref.read(authRepositoryProvider);
       final me = ref.read(currentUidProvider);
       final names = <String, String>{};
       for (final u in uids) {
+        if (isGuestId(u)) {
+          names[u] = group.guests[u]?.name ?? 'Guest';
+          continue;
+        }
         final nick = friends.where((f) => f.uid == u).firstOrNull?.nickname;
         final profile = await authRepo.streamProfile(u).first.timeout(const Duration(seconds: 5), onTimeout: () => null);
         names[u] = nick ?? profile?.displayName ?? (u == me ? 'Me' : 'Former member');
@@ -276,7 +281,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> with Sing
       await ExportService.shareGroupPdf(
         groupName: group.name,
         expenses: expenses,
-        members: group.members,
+        members: group.participants,
         nameOf: (u) => names[u] ?? 'Former member',
       );
     } catch (e) {

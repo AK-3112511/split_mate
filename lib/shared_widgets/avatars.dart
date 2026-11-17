@@ -7,6 +7,7 @@ import '../core/utils/image_codec.dart';
 import '../core/utils/initials.dart';
 import '../features/auth/data/auth_repository.dart';
 import '../features/friends/data/friends_repository.dart';
+import '../features/groups/domain/guest.dart';
 
 /// Photo (base64 or URL) or initials on a person-specific gradient.
 class PersonAvatar extends StatelessWidget {
@@ -97,7 +98,8 @@ class UserAvatar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final profile = ref.watch(userProfileProvider(uid)).valueOrNull;
+    // Guests have no profile to load.
+    final profile = isGuestId(uid) ? null : ref.watch(userProfileProvider(uid)).valueOrNull;
     final name = ref.watch(realNameProvider(uid));
     return PersonAvatar(seed: uid, name: name, photo: profile?.avatar, size: size, ring: ring);
   }

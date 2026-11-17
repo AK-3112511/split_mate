@@ -35,9 +35,11 @@ class _SplitMateAppState extends ConsumerState<SplitMateApp> {
   void _handleLink(Uri uri) {
     final isJoin = (uri.scheme == 'splitmate' && uri.host == 'join') || uri.path == '/join';
     final code = uri.queryParameters['code'];
+    final guest = uri.queryParameters['guest'];
     if (isJoin && code != null && code.isNotEmpty) {
       // The router's redirect parks this behind login/verification if needed.
-      ref.read(routerProvider).go('/join?code=${Uri.encodeComponent(code)}');
+      final claim = guest == null || guest.isEmpty ? '' : '&guest=${Uri.encodeComponent(guest)}';
+      ref.read(routerProvider).go('/join?code=${Uri.encodeComponent(code)}$claim');
     }
   }
 
