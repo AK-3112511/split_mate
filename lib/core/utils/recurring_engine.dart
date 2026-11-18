@@ -125,6 +125,7 @@ class RecurringEngine {
                   e.key: SplitEntry(amountOwed: e.value.amountOwed, settled: e.key == tm.payerUid),
               },
               items: tm.items,
+              itemsExtra: tm.itemsExtra,
               date: due[i],
               createdAt: now,
               createdBy: tm.createdBy,

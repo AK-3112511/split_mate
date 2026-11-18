@@ -22,7 +22,10 @@ import '../../../shared_widgets/feedback.dart';
 import '../../../shared_widgets/inputs.dart';
 import '../../../shared_widgets/states.dart';
 import '../../auth/data/auth_repository.dart';
+import '../../bill_scan/data/bill_scanner.dart';
+import '../../bill_scan/domain/bill_parser.dart';
 import '../../categories/data/categories_repository.dart';
+import '../../categories/data/category_guesser_provider.dart';
 import '../../categories/domain/category_model.dart';
 import '../../categories/domain/category_resolver.dart';
 import '../../friends/data/friends_repository.dart';
@@ -52,7 +55,16 @@ class AddGroupExpenseScreen extends ConsumerStatefulWidget {
   final String groupId;
   final String? editId;
   final bool startRecurring;
-  const AddGroupExpenseScreen({super.key, required this.groupId, this.editId, this.startRecurring = false});
+
+  /// Open the camera straight away to scan a bill (widget / app shortcut).
+  final bool startScan;
+  const AddGroupExpenseScreen({
+    super.key,
+    required this.groupId,
+    this.editId,
+    this.startRecurring = false,
+    this.startScan = false,
+  });
 
   @override
   ConsumerState<AddGroupExpenseScreen> createState() => _AddGroupExpenseScreenState();
@@ -63,6 +75,10 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
   final _amount = TextEditingController();
   final _desc = TextEditingController();
   final _notes = TextEditingController();
+
+  /// Itemized: tax / service charge and discount for the whole bill.
+  final _charges = TextEditingController();
+  final _discount = TextEditingController();
   final Map<String, TextEditingController> _exact = {};
   final Map<String, TextEditingController> _percent = {};
   final List<_ItemDraft> _items = [];
@@ -82,6 +98,12 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
   Uint8List? _receiptBytes;
   bool _removeReceipt = false;
   bool _saving = false;
+  bool _autoPicked = false;
+  bool _categoryTouched = false;
+  ParsedBill? _scanned;
+  bool _scanning = false;
+  bool _autoScanStarted = false;
+  final Map<String, GlobalKey> _chipKeys = {};
 
   @override
   void initState() {
@@ -94,6 +116,8 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
     _amount.dispose();
     _desc.dispose();
     _notes.dispose();
+    _charges.dispose();
+    _discount.dispose();
     for (final c in [..._exact.values, ..._percent.values]) {
       c.dispose();
     }
@@ -160,9 +184,50 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
     for (final item in existing.items ?? const <GroupExpenseItemModel>[]) {
       _items.add(_ItemDraft(name: item.name, price: Money.plain(item.amount), members: item.memberUids.toSet()));
     }
+    final extra = existing.itemsExtra ?? 0;
+    if (extra > 0) _charges.text = Money.plain(extra);
+    if (extra < 0) _discount.text = Money.plain(-extra);
   }
 
+  /// Charges minus discount (itemized only).
+  double get _extra => Money.round2(
+        (Money.parse(_charges.text, allowZero: true).value ?? 0) -
+            (Money.parse(_discount.text, allowZero: true).value ?? 0),
+      );
+
   double? get _amountValue => Money.parse(_amount.text).value;
+
+  void _onDescriptionChanged(String text, List<CategoryModel> cats) {
+    if (_editing != null || _categoryTouched) return;
+    final guess = ref.read(categoryGuesserProvider).guess(text);
+    final before = _categoryId;
+    setState(() {
+      if (guess != null) {
+        _categoryId = guess.category.id;
+        _autoPicked = true;
+      } else if (_autoPicked) {
+        _categoryId = cats.isNotEmpty ? cats.first.id : CategoryModel.othersId;
+        _autoPicked = false;
+      }
+    });
+    if (_categoryId != before) _revealCategory();
+  }
+
+  void _pickCategory(String id) => setState(() {
+        _categoryId = id;
+        _categoryTouched = true;
+        _autoPicked = false;
+      });
+
+  /// Scrolls the chip row so the (auto-)picked category is on screen.
+  void _revealCategory() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final ctx = _chipKeys[_categoryId]?.currentContext;
+      if (ctx != null && ctx.mounted) {
+        Scrollable.ensureVisible(ctx, alignment: 0.5, duration: Motion.base, curve: Curves.easeOutCubic);
+      }
+    });
+  }
 
   SplitResult _compute() {
     final payer = _payer ?? '';
@@ -180,7 +245,7 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
             if (e.value.text.trim().isNotEmpty) e.key: double.tryParse(e.value.text.replaceAll(',', '.')) ?? double.nan,
         });
       case SplitMode.itemized:
-        return SplitCalculator.itemized(payerUid: payer, items: [
+        return SplitCalculator.itemized(payerUid: payer, extra: _extra, items: [
           for (final i in _items)
             SplitItem(
               name: i.name.text,
@@ -236,6 +301,7 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
                 ),
             ]
           : null,
+      itemsExtra: _mode == SplitMode.itemized && _extra != 0 ? _extra : null,
     );
 
     setState(() => _saving = true);
@@ -267,6 +333,107 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
     } catch (e) {
       if (mounted) setState(() => _saving = false);
       Toast.error(e);
+    }
+  }
+
+  void _chooseScanSource(GroupModel group) {
+    showAppSheet<void>(
+      context,
+      builder: (ctx) => SheetBody(
+        title: 'Scan a bill',
+        subtitle: 'Read on your phone. The photo is kept as the receipt.',
+        children: [
+          for (final (icon, label, source) in [
+            (Icons.photo_camera_rounded, 'Take a photo', ImageSource.camera),
+            (Icons.photo_library_rounded, 'Choose from gallery', ImageSource.gallery),
+          ])
+            ListTile(
+              leading: IconBadge(icon, size: 40),
+              title: Text(label),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                _scanBill(group, source);
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _scanBill(GroupModel group, ImageSource source) async {
+    if (_scanning) return;
+    final typed = _items.where((i) => i.name.text.trim().isNotEmpty || i.price.text.trim().isNotEmpty).length;
+    if (_mode == SplitMode.itemized && typed > 0) {
+      final ok = await confirmAction(
+        context,
+        title: 'Replace your items?',
+        message: 'The items read from the bill will replace the $typed you added.',
+        confirmLabel: 'Replace',
+      );
+      if (!ok || !mounted) return;
+    }
+    FocusScope.of(context).unfocus();
+    setState(() => _scanning = true);
+    ScannedBill? scan;
+    try {
+      scan = await BillScanner.scan(source);
+    } catch (e) {
+      debugPrint('Bill scan failed: $e');
+      Toast.show('Couldn\'t read that photo. Try again in good light.', type: ToastType.error);
+    }
+    if (!mounted) return;
+    setState(() => _scanning = false);
+    if (scan != null) _applyScan(scan, _people(group));
+  }
+
+  void _applyScan(ScannedBill scan, List<String> people) {
+    final bill = scan.bill;
+    final keepReceipt = _receiptBytes == null && !((_editing?.hasReceipt ?? false) && !_removeReceipt);
+    final fillDesc = _desc.text.trim().isEmpty && bill.merchant != null;
+    if (bill.isEmpty && bill.billTotal == null) {
+      Toast.show('Couldn\'t find any prices. Try a flat, well-lit photo with the items and total in view.',
+          type: ToastType.error, duration: const Duration(seconds: 5));
+      return;
+    }
+    setState(() {
+      if (bill.isEmpty) {
+        // Items unreadable but the total is there: split the total.
+        _mode = SplitMode.equal;
+        _amount.text = Money.plain(bill.billTotal!);
+        _scanned = null;
+      } else {
+        for (final i in _items) {
+          i.dispose();
+        }
+        _items
+          ..clear()
+          ..addAll([
+            for (final item in bill.items)
+              _ItemDraft(
+                name: item.name,
+                price: item.amount == null ? '' : Money.plain(item.amount!),
+                members: {...people},
+              ),
+          ]);
+        _mode = SplitMode.itemized;
+        _charges.text = bill.charges > 0 ? Money.plain(bill.charges) : '';
+        _discount.text = bill.discount > 0 ? Money.plain(bill.discount) : '';
+        _scanned = bill;
+      }
+      if (keepReceipt && scan.receipt != null) {
+        _receipt = scan.receipt;
+        _receiptBytes = scan.receiptBytes;
+        _removeReceipt = false;
+      }
+      if (fillDesc) _desc.text = bill.merchant!;
+    });
+    if (fillDesc) {
+      _onDescriptionChanged(_desc.text, ref.read(userCategoriesProvider).valueOrNull ?? CategoryModel.defaults);
+    }
+    Haptics.success();
+    if (bill.isEmpty) {
+      Toast.show('Couldn\'t make out the items, so the bill total was used.',
+          type: ToastType.warning, duration: const Duration(seconds: 5));
     }
   }
 
@@ -319,7 +486,19 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
         _init(group, found, cats, me);
       }
     }
+    // Same guard as the personal screen: never keep a default category id that
+    // your own list (loaded a moment later) doesn't have.
+    if (_editing == null && !_categoryTouched && !cats.any((c) => c.id == _categoryId)) {
+      _categoryId = cats.isNotEmpty ? cats.first.id : CategoryModel.othersId;
+      _autoPicked = false;
+    }
     _categoryId ??= cats.isNotEmpty ? cats.first.id : CategoryModel.othersId;
+    if (widget.startScan && !_autoScanStarted && _editing == null) {
+      _autoScanStarted = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _scanBill(group, ImageSource.camera);
+      });
+    }
     final categories = [...cats, if (_snapshotCategory != null) _snapshotCategory!];
     final people = _people(group);
     final result = _compute();
@@ -335,191 +514,215 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
             Text(group.name, style: context.text.labelMedium, maxLines: 1, overflow: TextOverflow.ellipsis),
           ],
         ),
+        actions: [
+          if (!isTemplate)
+            IconButton(
+              tooltip: 'Scan a bill',
+              icon: const Icon(Icons.document_scanner_rounded),
+              onPressed: _scanning ? null : () => _chooseScanSource(group),
+            ),
+        ],
       ),
-      body: Form(
-        key: _form,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(Space.gutter, 0, Space.gutter, 120),
-          children: [
-            const SizedBox(height: Space.sm),
-            if (_mode == SplitMode.itemized)
-              Center(
-                child: Column(
+      body: Stack(
+        children: [
+          Form(
+            key: _form,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(Space.gutter, 0, Space.gutter, 120),
+              children: [
+                const SizedBox(height: Space.sm),
+                if (_mode == SplitMode.itemized)
+                  Center(
+                    child: Column(
+                      children: [
+                        Text(_extra == 0 ? 'Total from items' : 'Total with tax & charges', style: context.text.labelMedium),
+                        Text(Money.format(result.isValid ? result.total : _itemsTotal() + _extra),
+                            style: context.text.displayMedium?.copyWith(fontFeatures: AppTheme.tabular)),
+                      ],
+                    ),
+                  )
+                else
+                  MoneyField(
+                    controller: _amount,
+                    autofocus: _editing == null,
+                    onChanged: (_) => setState(() {}),
+                    validator: (v) => Money.parse(v).error,
+                  ),
+                const SizedBox(height: Space.md),
+                AppTextField(
+                  controller: _desc,
+                  label: 'Description',
+                  hint: 'e.g. Groceries at DMart',
+                  icon: Icons.edit_note_rounded,
+                  maxLength: 60,
+                  textCapitalization: TextCapitalization.sentences,
+                  onChanged: (v) => _onDescriptionChanged(v, cats),
+                  validator: (v) => (v?.trim().isEmpty ?? true) ? 'Add a short description' : null,
+                ),
+                const SizedBox(height: Space.lg),
+                Row(
                   children: [
-                    Text('Total from items', style: context.text.labelMedium),
-                    Text(Money.format(result.isValid ? result.total : _itemsTotal()),
-                        style: context.text.displayMedium?.copyWith(fontFeatures: AppTheme.tabular)),
+                    Text('Category', style: context.text.titleSmall),
+                    if (_autoPicked) ...[
+                      const SizedBox(width: Space.xs),
+                      const Pill('Auto-picked', tone: PillTone.primary, icon: Icons.auto_awesome_rounded),
+                    ],
                   ],
                 ),
-              )
-            else
-              MoneyField(
-                controller: _amount,
-                autofocus: _editing == null,
-                onChanged: (_) => setState(() {}),
-                validator: (v) => Money.parse(v).error,
-              ),
-            const SizedBox(height: Space.md),
-            AppTextField(
-              controller: _desc,
-              label: 'Description',
-              hint: 'e.g. Groceries at DMart',
-              icon: Icons.edit_note_rounded,
-              maxLength: 60,
-              textCapitalization: TextCapitalization.sentences,
-              validator: (v) => (v?.trim().isEmpty ?? true) ? 'Add a short description' : null,
-            ),
-            const SizedBox(height: Space.lg),
-            Text('Category', style: context.text.titleSmall),
-            const SizedBox(height: Space.xs),
-            SizedBox(
-              height: 40,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: categories.length,
-                separatorBuilder: (_, __) => const SizedBox(width: Space.xs),
-                itemBuilder: (_, i) {
-                  final cat = categories[i];
-                  return ChoiceChipX(
-                    label: cat.name,
-                    icon: cat.icon,
-                    color: cat.color,
-                    selected: cat.id == _categoryId,
-                    onTap: () => setState(() => _categoryId = cat.id),
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: Space.lg),
-            Text(isTemplate || _recurring ? 'Starts on' : 'Date', style: context.text.titleSmall),
-            const SizedBox(height: Space.xs),
-            Wrap(
-              spacing: Space.xs,
-              runSpacing: Space.xs,
-              children: [
-                ChoiceChipX(
-                  label: 'Today',
-                  selected: Dates.isSameDay(_date, DateTime.now()),
-                  onTap: () => setState(() => _date = DateTime.now()),
+                const SizedBox(height: Space.xs),
+                // A Row (not a lazy list) so every chip exists and can be scrolled to.
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final cat in categories)
+                        Padding(
+                          key: _chipKeys.putIfAbsent(cat.id, GlobalKey.new),
+                          padding: const EdgeInsets.only(right: Space.xs),
+                          child: ChoiceChipX(
+                            label: cat.name,
+                            icon: cat.icon,
+                            color: cat.color,
+                            selected: cat.id == _categoryId,
+                            onTap: () => _pickCategory(cat.id),
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
-                ChoiceChipX(
-                  label: 'Yesterday',
-                  selected: Dates.isSameDay(_date, DateTime.now().subtract(const Duration(days: 1))),
-                  onTap: () => setState(() => _date = DateTime.now().subtract(const Duration(days: 1))),
+                const SizedBox(height: Space.lg),
+                Text(isTemplate || _recurring ? 'Starts on' : 'Date', style: context.text.titleSmall),
+                const SizedBox(height: Space.xs),
+                Wrap(
+                  spacing: Space.xs,
+                  runSpacing: Space.xs,
+                  children: [
+                    ChoiceChipX(
+                      label: 'Today',
+                      selected: Dates.isSameDay(_date, DateTime.now()),
+                      onTap: () => setState(() => _date = DateTime.now()),
+                    ),
+                    ChoiceChipX(
+                      label: 'Yesterday',
+                      selected: Dates.isSameDay(_date, DateTime.now().subtract(const Duration(days: 1))),
+                      onTap: () => setState(() => _date = DateTime.now().subtract(const Duration(days: 1))),
+                    ),
+                    ChoiceChipX(
+                      label: _otherDay ? Dates.dayLabel(_date) : 'Pick a date',
+                      icon: Icons.calendar_month_rounded,
+                      selected: _otherDay,
+                      onTap: () async {
+                        final now = DateTime.now();
+                        final picked = await showDatePicker(
+                          context: context,
+                          initialDate: _date.isAfter(now) && !(isTemplate || _recurring) ? now : _date,
+                          firstDate: DateTime(2015),
+                          lastDate: isTemplate || _recurring ? DateTime(now.year + 1, now.month, now.day) : now,
+                        );
+                        if (picked != null) setState(() => _date = Dates.withTimeOf(picked, DateTime.now()));
+                      },
+                    ),
+                  ],
                 ),
-                ChoiceChipX(
-                  label: _otherDay ? Dates.dayLabel(_date) : 'Pick a date',
-                  icon: Icons.calendar_month_rounded,
-                  selected: _otherDay,
-                  onTap: () async {
-                    final now = DateTime.now();
-                    final picked = await showDatePicker(
-                      context: context,
-                      initialDate: _date.isAfter(now) && !(isTemplate || _recurring) ? now : _date,
-                      firstDate: DateTime(2015),
-                      lastDate: isTemplate || _recurring ? DateTime(now.year + 1, now.month, now.day) : now,
-                    );
-                    if (picked != null) setState(() => _date = Dates.withTimeOf(picked, DateTime.now()));
-                  },
+                const SizedBox(height: Space.lg),
+                Text('Paid by', style: context.text.titleSmall),
+                const SizedBox(height: Space.xs),
+                SizedBox(
+                  height: 92,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    itemCount: people.length + 1,
+                    separatorBuilder: (_, __) => const SizedBox(width: Space.sm),
+                    itemBuilder: (_, i) => i == people.length
+                        ? _AddPersonPick(onTap: () async {
+                            // Someone not on SplitMate yet: add them on the spot.
+                            final id = await showAddGuestSheet(context, group);
+                            if (id != null && mounted) setState(() => _participants.add(id));
+                          })
+                        : _PersonPick(
+                            uid: people[i],
+                            selected: people[i] == _payer,
+                            onTap: () => setState(() => _payer = people[i]),
+                          ),
+                  ),
+                ),
+                const SizedBox(height: Space.lg),
+                Text('Split', style: context.text.titleSmall),
+                const SizedBox(height: Space.xs),
+                SizedBox(
+                  width: double.infinity,
+                  child: SegmentedButton<SplitMode>(
+                    showSelectedIcon: false,
+                    segments: const [
+                      ButtonSegment(value: SplitMode.equal, label: Text('Equal', maxLines: 1, softWrap: false)),
+                      ButtonSegment(value: SplitMode.exact, label: Text('Exact', maxLines: 1, softWrap: false)),
+                      ButtonSegment(value: SplitMode.percent, label: Text('%', maxLines: 1, softWrap: false)),
+                      ButtonSegment(value: SplitMode.itemized, label: Text('Items', maxLines: 1, softWrap: false)),
+                    ],
+                    selected: {_mode},
+                    onSelectionChanged: (s) => setState(() {
+                      _mode = s.first;
+                      if (_mode == SplitMode.itemized && _items.isEmpty) {
+                        _items.add(_ItemDraft(members: {...group.participants}));
+                      }
+                    }),
+                  ),
+                ),
+                const SizedBox(height: Space.md),
+                _SplitMeter(result: result, mode: _mode),
+                const SizedBox(height: Space.sm),
+                AnimatedSwitcher(
+                  duration: Motion.base,
+                  child: KeyedSubtree(key: ValueKey(_mode), child: _splitEditor(context, people, result)),
+                ),
+                const SizedBox(height: Space.lg),
+                if (_editing == null || isTemplate)
+                  AppCard(
+                    padding: const EdgeInsets.symmetric(horizontal: Space.md, vertical: Space.xs),
+                    child: Column(
+                      children: [
+                        if (_editing == null)
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            value: _recurring,
+                            onChanged: (v) => setState(() => _recurring = v),
+                            secondary: const IconBadge(Icons.autorenew_rounded, size: 40),
+                            title: const Text('Repeat this expense'),
+                            subtitle: const Text('Rent, Wi-Fi, maid…'),
+                          ),
+                        if (_recurring)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: Space.sm, top: Space.xs),
+                            child: SizedBox(
+                              width: double.infinity,
+                              child: SegmentedButton<RecurrenceInterval>(
+                                showSelectedIcon: false,
+                                segments: [
+                                  for (final i in RecurrenceInterval.values) ButtonSegment(value: i, label: Text(i.label)),
+                                ],
+                                selected: {_interval},
+                                onSelectionChanged: (s) => setState(() => _interval = s.first),
+                              ),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                const SizedBox(height: Space.md),
+                _receiptRow(context),
+                const SizedBox(height: Space.md),
+                AppTextField(
+                  controller: _notes,
+                  label: 'Notes (optional)',
+                  icon: Icons.notes_rounded,
+                  maxLines: 2,
+                  maxLength: 200,
                 ),
               ],
             ),
-            const SizedBox(height: Space.lg),
-            Text('Paid by', style: context.text.titleSmall),
-            const SizedBox(height: Space.xs),
-            SizedBox(
-              height: 92,
-              child: ListView.separated(
-                scrollDirection: Axis.horizontal,
-                itemCount: people.length + 1,
-                separatorBuilder: (_, __) => const SizedBox(width: Space.sm),
-                itemBuilder: (_, i) => i == people.length
-                    ? _AddPersonPick(onTap: () async {
-                        // Someone not on SplitMate yet: add them on the spot.
-                        final id = await showAddGuestSheet(context, group);
-                        if (id != null && mounted) setState(() => _participants.add(id));
-                      })
-                    : _PersonPick(
-                        uid: people[i],
-                        selected: people[i] == _payer,
-                        onTap: () => setState(() => _payer = people[i]),
-                      ),
-              ),
-            ),
-            const SizedBox(height: Space.lg),
-            Text('Split', style: context.text.titleSmall),
-            const SizedBox(height: Space.xs),
-            SizedBox(
-              width: double.infinity,
-              child: SegmentedButton<SplitMode>(
-                showSelectedIcon: false,
-                segments: const [
-                  ButtonSegment(value: SplitMode.equal, label: Text('Equal', maxLines: 1, softWrap: false)),
-                  ButtonSegment(value: SplitMode.exact, label: Text('Exact', maxLines: 1, softWrap: false)),
-                  ButtonSegment(value: SplitMode.percent, label: Text('%', maxLines: 1, softWrap: false)),
-                  ButtonSegment(value: SplitMode.itemized, label: Text('Items', maxLines: 1, softWrap: false)),
-                ],
-                selected: {_mode},
-                onSelectionChanged: (s) => setState(() {
-                  _mode = s.first;
-                  if (_mode == SplitMode.itemized && _items.isEmpty) {
-                    _items.add(_ItemDraft(members: {...group.participants}));
-                  }
-                }),
-              ),
-            ),
-            const SizedBox(height: Space.md),
-            _SplitMeter(result: result, mode: _mode),
-            const SizedBox(height: Space.sm),
-            AnimatedSwitcher(
-              duration: Motion.base,
-              child: KeyedSubtree(key: ValueKey(_mode), child: _splitEditor(context, people, result)),
-            ),
-            const SizedBox(height: Space.lg),
-            if (_editing == null || isTemplate)
-              AppCard(
-                padding: const EdgeInsets.symmetric(horizontal: Space.md, vertical: Space.xs),
-                child: Column(
-                  children: [
-                    if (_editing == null)
-                      SwitchListTile(
-                        contentPadding: EdgeInsets.zero,
-                        value: _recurring,
-                        onChanged: (v) => setState(() => _recurring = v),
-                        secondary: const IconBadge(Icons.autorenew_rounded, size: 40),
-                        title: const Text('Repeat this expense'),
-                        subtitle: const Text('Rent, Wi-Fi, maid…'),
-                      ),
-                    if (_recurring)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: Space.sm, top: Space.xs),
-                        child: SizedBox(
-                          width: double.infinity,
-                          child: SegmentedButton<RecurrenceInterval>(
-                            showSelectedIcon: false,
-                            segments: [
-                              for (final i in RecurrenceInterval.values) ButtonSegment(value: i, label: Text(i.label)),
-                            ],
-                            selected: {_interval},
-                            onSelectionChanged: (s) => setState(() => _interval = s.first),
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            const SizedBox(height: Space.md),
-            _receiptRow(context),
-            const SizedBox(height: Space.md),
-            AppTextField(
-              controller: _notes,
-              label: 'Notes (optional)',
-              icon: Icons.notes_rounded,
-              maxLines: 2,
-              maxLength: 200,
-            ),
-          ],
-        ),
+          ),
+          if (_scanning) const Positioned.fill(child: _ScanningOverlay()),
+        ],
       ),
       bottomNavigationBar: SafeArea(
         child: Padding(
@@ -621,8 +824,26 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
           ],
         );
       case SplitMode.itemized:
+        final group = ref.read(groupDetailsStreamProvider(widget.groupId)).valueOrNull;
         return Column(
           children: [
+            if (_scanned != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: Space.sm),
+                child: _ScanSummary(
+                  bill: _scanned!,
+                  currentTotal: result.isValid ? result.total : _itemsTotal() + _extra,
+                ),
+              )
+            else if (group != null && _editing == null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: Space.sm),
+                child: SecondaryButton(
+                  label: 'Scan a bill instead',
+                  icon: Icons.document_scanner_rounded,
+                  onPressed: () => _chooseScanSource(group),
+                ),
+              ),
             for (var i = 0; i < _items.length; i++)
               Padding(
                 padding: const EdgeInsets.only(bottom: Space.sm),
@@ -691,6 +912,19 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
               label: 'Add item',
               icon: Icons.add_rounded,
               onPressed: () => setState(() => _items.add(_ItemDraft(members: {...people}))),
+            ),
+            const SizedBox(height: Space.sm),
+            AppCard(
+              padding: const EdgeInsets.fromLTRB(Space.md, Space.xs, Space.md, Space.sm),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  _ExtraRow(label: 'Tax & charges', hint: 'GST, service…', controller: _charges, onChanged: _onSplitChanged),
+                  _ExtraRow(label: 'Discount', controller: _discount, onChanged: _onSplitChanged),
+                  const SizedBox(height: 4),
+                  Text('Shared in proportion to what each person had.', style: context.text.bodySmall),
+                ],
+              ),
             ),
             if (result.isValid) ...[
               const SizedBox(height: Space.md),
@@ -953,6 +1187,121 @@ class _MiniPersonChip extends ConsumerWidget {
                 style: context.text.labelMedium?.copyWith(color: selected ? c.primary : c.textMuted)),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// "Reading the bill…" over the form while ML Kit works.
+class _ScanningOverlay extends StatelessWidget {
+  const _ScanningOverlay();
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.aurora;
+    return ColoredBox(
+      color: c.ink.withValues(alpha: 0.35),
+      child: Center(
+        child: AppCard(
+          padding: const EdgeInsets.symmetric(horizontal: Space.lg, vertical: Space.md),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const SizedBox(width: 22, height: 22, child: CircularProgressIndicator(strokeWidth: 2.5)),
+              const SizedBox(width: Space.md),
+              Text('Reading the bill…', style: context.text.titleSmall),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Whether the scanned items add up to the bill's printed total.
+class _ScanSummary extends StatelessWidget {
+  final ParsedBill bill;
+  final double currentTotal;
+  const _ScanSummary({required this.bill, required this.currentTotal});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.aurora;
+    final printed = bill.billTotal;
+    final ok = printed != null && Money.equals(printed, currentTotal);
+    final color = ok ? c.positive : c.warning;
+    final n = bill.items.length;
+    final items = '$n ${n == 1 ? 'item' : 'items'}';
+    final headline = ok
+        ? 'Read $items. Matches the bill: ${Money.format(printed)}'
+        : printed != null
+            ? 'The bill says ${Money.format(printed)}, these add up to ${Money.format(currentTotal)}. '
+                'Check for a missed or misread line.'
+            : 'Read $items. No total found, so check them against the bill.';
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(Space.sm),
+      decoration: BoxDecoration(color: color.withValues(alpha: 0.12), borderRadius: Radii.tile),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(ok ? Icons.check_circle_rounded : Icons.warning_amber_rounded, color: color, size: 20),
+              const SizedBox(width: Space.xs),
+              Expanded(
+                child: Text(headline,
+                    style: context.text.bodyMedium?.copyWith(color: color, fontWeight: FontWeight.w600)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 4),
+          Padding(
+            padding: const EdgeInsets.only(left: 28),
+            child: Text('Tap the names under each item to set who had what.', style: context.text.bodySmall),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ExtraRow extends StatelessWidget {
+  final String label;
+  final String? hint;
+  final TextEditingController controller;
+  final VoidCallback onChanged;
+  const _ExtraRow({required this.label, required this.controller, required this.onChanged, this.hint});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label, style: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w600)),
+                if (hint != null) Text(hint!, style: context.text.bodySmall),
+              ],
+            ),
+          ),
+          SizedBox(
+            width: 120,
+            child: TextField(
+              controller: controller,
+              onChanged: (_) => onChanged(),
+              keyboardType: const TextInputType.numberWithOptions(decimal: true),
+              inputFormatters: moneyInputFormatters,
+              textAlign: TextAlign.right,
+              style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w700, fontFeatures: AppTheme.tabular),
+              decoration: const InputDecoration(isDense: true, hintText: '0', prefixText: '₹ '),
+            ),
+          ),
+        ],
       ),
     );
   }

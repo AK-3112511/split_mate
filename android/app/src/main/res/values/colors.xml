@@ -2,4 +2,8 @@
 <resources>
     <color name="splash_bg">#FFD23F</color>
 	<color name="ic_launcher_background">#FFD23F</color>
+    <!-- Pop Brutal palette for the widget and shortcut icons (see tokens.dart). -->
+    <color name="brand_ink">#111111</color>
+    <color name="brand_yellow">#FFD23F</color>
+    <color name="brand_mint">#4ECDC4</color>
 </resources>

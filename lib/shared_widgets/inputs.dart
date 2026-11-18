@@ -99,6 +99,7 @@ class MoneyField extends StatelessWidget {
   final ValueChanged<String>? onChanged;
   final bool autofocus;
   final FocusNode? focusNode;
+  final TextInputAction? textInputAction;
 
   const MoneyField({
     super.key,
@@ -107,6 +108,7 @@ class MoneyField extends StatelessWidget {
     this.onChanged,
     this.autofocus = false,
     this.focusNode,
+    this.textInputAction,
   });
 
   @override
@@ -132,6 +134,7 @@ class MoneyField extends StatelessWidget {
                 autofocus: autofocus,
                 validator: validator,
                 onChanged: onChanged,
+                textInputAction: textInputAction,
                 keyboardType: const TextInputType.numberWithOptions(decimal: true),
                 inputFormatters: moneyInputFormatters,
                 style: style,

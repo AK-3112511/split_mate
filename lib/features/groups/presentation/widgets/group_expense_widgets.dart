@@ -225,6 +225,24 @@ class _GroupExpenseDetail extends ConsumerWidget {
                   ],
                 ),
               ),
+            if ((expense.itemsExtra ?? 0) != 0)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        expense.itemsExtra! > 0
+                            ? 'Tax & charges (shared by what each had)'
+                            : 'Discount (shared by what each had)',
+                        style: context.text.bodyMedium,
+                      ),
+                    ),
+                    Text(Money.format(expense.itemsExtra!),
+                        style: context.text.bodyMedium?.copyWith(fontFeatures: AppTheme.tabular)),
+                  ],
+                ),
+              ),
           ],
         ],
         if (expense.notes != null && expense.notes!.trim().isNotEmpty) ...[

@@ -9,6 +9,7 @@ import '../../features/auth/presentation/login_screen.dart';
 import '../../features/auth/presentation/signup_screen.dart';
 import '../../features/auth/presentation/splash_screen.dart';
 import '../../features/auth/presentation/verify_email_screen.dart';
+import '../../features/bill_scan/presentation/scan_bill_screen.dart';
 import '../../features/categories/presentation/categories_screen.dart';
 import '../../features/friends/presentation/friends_screen.dart';
 import '../../features/groups/presentation/add_group_expense_screen.dart';
@@ -122,6 +123,7 @@ final routerProvider = Provider<GoRouter>((ref) {
           guestId: s.uri.queryParameters['guest'],
         ),
       ),
+      GoRoute(path: '/scan', builder: (_, __) => const ScanBillScreen()),
       GoRoute(path: '/notifications', builder: (_, __) => const NotificationsScreen()),
       GoRoute(path: '/search', builder: (_, __) => const SearchScreen()),
       GoRoute(path: '/categories', builder: (_, __) => const CategoriesScreen()),
@@ -161,6 +163,7 @@ final routerProvider = Provider<GoRouter>((ref) {
                       builder: (_, s) => AddGroupExpenseScreen(
                         groupId: s.pathParameters['groupId']!,
                         startRecurring: s.uri.queryParameters['recurring'] == '1',
+                        startScan: s.uri.queryParameters['scan'] == '1',
                       ),
                     ),
                     GoRoute(

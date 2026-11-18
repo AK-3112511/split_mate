@@ -41,7 +41,29 @@
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="https" android:host="splitmate-6b600.web.app" android:path="/join"/>
             </intent-filter>
+            <!-- Long-press shortcuts: Add expense, Scan a bill. -->
+            <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts" />
         </activity>
+        <!-- Forwards shortcut taps to MainActivity without restarting the app. -->
+        <activity
+            android:name=".QuickLaunchActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity="com.ak3112511.splitmate.quicklaunch"
+            android:theme="@android:style/Theme.NoDisplay" />
+        <!-- Home-screen widget. -->
+        <receiver
+            android:name=".QuickAddWidget"
+            android:exported="false"
+            android:label="@string/widget_add">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/quick_add_widget_info" />
+        </receiver>
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

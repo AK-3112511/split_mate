@@ -91,6 +91,10 @@ class GroupExpenseModel implements LedgerEntry {
 
   final List<GroupExpenseItemModel>? items;
 
+  /// Itemized only: tax, service charge etc. minus any discount (₹, may be
+  /// negative). Spread over people in proportion to what they had.
+  final double? itemsExtra;
+
   const GroupExpenseModel({
     required this.expenseId,
     required this.payerUid,
@@ -116,6 +120,7 @@ class GroupExpenseModel implements LedgerEntry {
     this.generatedFromTemplateId,
     this.isCancelled = false,
     this.items,
+    this.itemsExtra,
   });
 
   /// Payment records settle debts; they're not spending.
@@ -160,6 +165,7 @@ class GroupExpenseModel implements LedgerEntry {
         'generatedFromTemplateId': generatedFromTemplateId,
         'isCancelled': isCancelled,
         'items': items?.map((i) => i.toMap()).toList(),
+        if (itemsExtra != null && itemsExtra != 0) 'itemsExtra': itemsExtra,
       };
 
   factory GroupExpenseModel.fromMap(Map<String, dynamic> map, String id) {
@@ -200,6 +206,9 @@ class GroupExpenseModel implements LedgerEntry {
               .whereType<Map>()
               .map((i) => GroupExpenseItemModel.fromMap(Map<String, dynamic>.from(i)))
               .toList()
+          : null,
+      itemsExtra: map['itemsExtra'] is num && (map['itemsExtra'] as num).isFinite
+          ? (map['itemsExtra'] as num).toDouble()
           : null,
     );
   }

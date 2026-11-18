@@ -1,4 +1,4 @@
-import 'dart:typed_data';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:material_ui/material_ui.dart';
@@ -22,6 +22,8 @@ import '../../../shared_widgets/receipt_viewer.dart';
 import '../../../shared_widgets/states.dart';
 import '../../auth/data/auth_repository.dart';
 import '../../categories/data/categories_repository.dart';
+import '../../categories/data/category_guesser_provider.dart';
+import '../../categories/domain/category_guesser.dart';
 import '../../categories/domain/category_model.dart';
 import '../../categories/domain/category_resolver.dart';
 import '../../categories/presentation/category_editor_sheet.dart';
@@ -45,6 +47,7 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
   final _amount = TextEditingController();
   final _desc = TextEditingController();
   final _notes = TextEditingController();
+  final _amountFocus = FocusNode();
 
   ExpenseModel? _editing;
   bool _initialized = false;
@@ -58,16 +61,36 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
   bool _showNotes = false;
   bool _saving = false;
 
+  /// The category was set by the guesser (not by a tap), so typing may change it.
+  bool _autoPicked = false;
+
+  /// The user chose a category themselves: stop guessing.
+  bool _categoryTouched = false;
+
   bool get _isEdit => widget.editId != null;
 
   @override
   void initState() {
     super.initState();
     _recurring = widget.startRecurring;
+    if (!_isEdit) {
+      // Opened from the widget or a shortcut, the window may not have focus
+      // yet when autofocus asks for the keyboard, and Android ignores that.
+      // Ask again once it has settled (unless you've moved to another field).
+      Future<void>.delayed(const Duration(milliseconds: 450), () {
+        if (!mounted) return;
+        final focused = FocusManager.instance.primaryFocus;
+        if (focused == null || focused == _amountFocus || focused is FocusScopeNode) {
+          _amountFocus.requestFocus();
+          SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+        }
+      });
+    }
   }
 
   @override
   void dispose() {
+    _amountFocus.dispose();
     _amount.dispose();
     _desc.dispose();
     _notes.dispose();
@@ -126,6 +149,30 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
         ],
       ),
     );
+  }
+
+  void _onDescriptionChanged(String text, List<CategoryModel> cats) {
+    if (_isEdit || _categoryTouched) return;
+    final guess = ref.read(categoryGuesserProvider).guess(text);
+    setState(() {
+      if (guess != null) {
+        _categoryId = guess.category.id;
+        _autoPicked = true;
+      } else if (_autoPicked) {
+        _categoryId = cats.isNotEmpty ? cats.first.id : CategoryModel.othersId;
+        _autoPicked = false;
+      }
+    });
+  }
+
+  void _applyQuickPick(QuickPick pick) {
+    Haptics.tap();
+    setState(() {
+      _desc.text = pick.description;
+      _categoryId = pick.category.id;
+      _autoPicked = true;
+      if (pick.amount != null && _amount.text.trim().isEmpty) _amount.text = Money.plain(pick.amount!);
+    });
   }
 
   Future<void> _pickDate() async {
@@ -229,6 +276,13 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
         );
       }
     }
+    // Until your profile loads, `cats` are the built-in defaults. Opened from
+    // a shortcut on a cold start, a default id your list doesn't have must not
+    // stick: it would save as "Other".
+    if (!_isEdit && !_categoryTouched && !cats.any((c) => c.id == _categoryId)) {
+      _categoryId = cats.isNotEmpty ? cats.first.id : CategoryModel.othersId;
+      _autoPicked = false;
+    }
     _categoryId ??= cats.isNotEmpty ? cats.first.id : CategoryModel.othersId;
     final isTemplate = _editing?.isRecurringTemplate ?? false;
     final title = _isEdit
@@ -252,7 +306,9 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
             const SizedBox(height: Space.md),
             MoneyField(
               controller: _amount,
+              focusNode: _amountFocus,
               autofocus: !_isEdit,
+              textInputAction: TextInputAction.next,
               validator: (v) => Money.parse(v).error,
             ).entrance(context),
             const SizedBox(height: Space.lg),
@@ -264,16 +320,31 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
               maxLength: 60,
               textCapitalization: TextCapitalization.sentences,
               textInputAction: TextInputAction.done,
+              onChanged: (v) => _onDescriptionChanged(v, cats),
+              // Amount, "Uber", Done → saved. The category is guessed as you type.
+              onSubmitted: _saving ? null : (_) => _save(cats),
               validator: (v) => (v?.trim().isEmpty ?? true) ? 'Add a short description' : null,
             ).entrance(context, index: 1),
+            if (!_isEdit && _desc.text.isEmpty) _QuickPicks(onPick: _applyQuickPick),
             const SizedBox(height: Space.xl),
             Row(
               children: [
-                Expanded(child: Text('Category', style: context.text.titleSmall)),
+                Text('Category', style: context.text.titleSmall),
+                if (_autoPicked) ...[
+                  const SizedBox(width: Space.xs),
+                  const Pill('Auto-picked', tone: PillTone.primary, icon: Icons.auto_awesome_rounded),
+                ],
+                const Spacer(),
                 TextButton.icon(
                   onPressed: () async {
                     final created = await showCategoryEditor(context);
-                    if (created != null && mounted) setState(() => _categoryId = created.id);
+                    if (created != null && mounted) {
+                      setState(() {
+                        _categoryId = created.id;
+                        _categoryTouched = true;
+                        _autoPicked = false;
+                      });
+                    }
                   },
                   icon: const Icon(Icons.add_rounded, size: 18),
                   label: const Text('New'),
@@ -284,7 +355,11 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
             _CategoryGrid(
               categories: cats,
               selectedId: _categoryId,
-              onSelect: (id) => setState(() => _categoryId = id),
+              onSelect: (id) => setState(() {
+                _categoryId = id;
+                _categoryTouched = true;
+                _autoPicked = false;
+              }),
             ).entrance(context, index: 2),
             const SizedBox(height: Space.xl),
             Text(_recurring ? 'Starts on' : 'Date', style: context.text.titleSmall),
@@ -449,6 +524,38 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
       label: 'Attach receipt',
       icon: Icons.add_a_photo_outlined,
       onPressed: _chooseReceiptSource,
+    );
+  }
+}
+
+/// "Add again" chips: your most frequent recent expenses.
+class _QuickPicks extends ConsumerWidget {
+  final ValueChanged<QuickPick> onPick;
+  const _QuickPicks({required this.onPick});
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final picks = ref.watch(categoryGuesserProvider).quickPicks();
+    if (picks.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: Space.xs),
+      child: SizedBox(
+        height: 40,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: picks.length,
+          separatorBuilder: (_, __) => const SizedBox(width: Space.xs),
+          itemBuilder: (_, i) {
+            final p = picks[i];
+            return ChoiceChipX(
+              label: p.amount == null ? p.description : '${p.description} · ${Money.format(p.amount!)}',
+              icon: p.category.icon,
+              selected: false,
+              onTap: () => onPick(p),
+            );
+          },
+        ),
+      ),
     );
   }
 }

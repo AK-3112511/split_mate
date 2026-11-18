@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shortcut_add_short">Add expense</string>
+    <string name="shortcut_add_long">Add an expense</string>
+    <string name="shortcut_scan_short">Scan a bill</string>
+    <string name="shortcut_scan_long">Scan a bill and split it</string>
+    <string name="widget_add">Add expense</string>
+    <string name="widget_scan">Scan a bill</string>
+    <string name="widget_description">Add an expense or scan a bill in one tap</string>
+</resources>
