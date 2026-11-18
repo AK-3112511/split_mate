@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:material_ui/material_ui.dart';
 import '../../../core/domain/recurrence.dart';
 import '../../../core/domain/split_calculator.dart';
@@ -8,7 +9,9 @@ import '../../../core/router/app_router.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../core/theme/aurora_colors.dart';
 import '../../../core/theme/tokens.dart';
+import '../../../core/utils/currency.dart';
 import '../../../core/utils/dates.dart';
+import '../../../core/utils/fx_rates.dart';
 import '../../../core/utils/haptics.dart';
 import '../../../core/utils/image_codec.dart';
 import '../../../core/utils/money.dart';
@@ -105,6 +108,17 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
   bool _autoScanStarted = false;
   final Map<String, GlobalKey> _chipKeys = {};
 
+  /// "By shares": shares per person and optional fixed extras ("+₹50").
+  final Map<String, double> _weights = {};
+  final Map<String, TextEditingController> _adjust = {};
+  bool _showAdjust = false;
+
+  /// Currency the amounts on this screen are typed in, and ₹ per unit.
+  String _currency = Currencies.inr;
+  final _rate = TextEditingController();
+  bool _rateLoading = false;
+  bool _rateLive = true;
+
   @override
   void initState() {
     super.initState();
@@ -118,7 +132,8 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
     _notes.dispose();
     _charges.dispose();
     _discount.dispose();
-    for (final c in [..._exact.values, ..._percent.values]) {
+    _rate.dispose();
+    for (final c in [..._exact.values, ..._percent.values, ..._adjust.values]) {
       c.dispose();
     }
     for (final i in _items) {
@@ -149,10 +164,21 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
     if (existing == null) {
       _payer = me;
       _participants.addAll(group.participants);
+      // Trips abroad: start in the trip's currency.
+      if (Currencies.isForeign(group.currency)) {
+        _currency = group.currency!;
+        WidgetsBinding.instance.addPostFrameCallback((_) => _fetchRate());
+      }
       return;
     }
     _editing = existing;
-    _amount.text = Money.plain(existing.amount);
+    // Entered abroad: edit what was typed, in that currency.
+    final fx = existing.fx;
+    if (fx != null) {
+      _currency = fx.currency;
+      _rate.text = _rateText(fx.rate);
+    }
+    _amount.text = Money.plain(fx?.amount ?? existing.amount);
     _desc.text = existing.description;
     _notes.text = existing.notes ?? '';
     _date = existing.date;
@@ -172,19 +198,23 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
       _snapshotCategory = resolved;
       _categoryId = resolved.id;
     }
-    final shares = existing.shareByUid..removeWhere((_, v) => v <= 0);
+    final shares = fx != null ? ({...fx.shares}..removeWhere((_, v) => v <= 0)) : (existing.shareByUid..removeWhere((_, v) => v <= 0));
     _participants.addAll(shares.keys);
     // Seed text at creation (before listeners) — this runs during build.
     for (final e in shares.entries) {
       _ctl(_exact, e.key, Money.plain(e.value));
     }
-    SplitCalculator.percentsFromShares(shares, existing.amount).forEach((uid, p) {
+    SplitCalculator.percentsFromShares(shares, fx?.amount ?? existing.amount).forEach((uid, p) {
       _ctl(_percent, uid, p.toStringAsFixed(2).replaceFirst(RegExp(r'\.?0+$'), ''));
     });
-    for (final item in existing.items ?? const <GroupExpenseItemModel>[]) {
+    for (final item in (fx != null ? fx.items : existing.items) ?? const <GroupExpenseItemModel>[]) {
       _items.add(_ItemDraft(name: item.name, price: Money.plain(item.amount), members: item.memberUids.toSet()));
     }
-    final extra = existing.itemsExtra ?? 0;
+    _weights.addAll(existing.shareWeights ?? const {});
+    final adjustments = fx != null ? fx.adjustments : existing.adjustments;
+    adjustments?.forEach((uid, v) => _ctl(_adjust, uid, Money.plain(v)));
+    _showAdjust = adjustments?.isNotEmpty ?? false;
+    final extra = (fx != null ? fx.itemsExtra : existing.itemsExtra) ?? 0;
     if (extra > 0) _charges.text = Money.plain(extra);
     if (extra < 0) _discount.text = Money.plain(-extra);
   }
@@ -196,6 +226,68 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
       );
 
   double? get _amountValue => Money.parse(_amount.text).value;
+
+  bool get _foreign => Currencies.isForeign(_currency);
+  String _fmt(num v) => Currencies.format(v, _currency);
+  String get _symbol => Currencies.of(_currency).symbol;
+
+  /// ₹ per unit of the chosen currency (1 for rupees, null if not entered).
+  double? get _rateValue {
+    if (!_foreign) return 1;
+    final r = double.tryParse(_rate.text.trim().replaceAll(',', '.'));
+    return r != null && r.isFinite && r > 0 ? r : null;
+  }
+
+  static String _rateText(double r) =>
+      r.toStringAsFixed(r < 1 ? 6 : 4).replaceFirst(RegExp(r'\.?0+$'), '');
+
+  Future<void> _fetchRate() async {
+    final code = _currency;
+    if (!Currencies.isForeign(code)) return;
+    setState(() => _rateLoading = true);
+    final r = await FxRates.toInr(code);
+    if (!mounted || code != _currency) return;
+    setState(() {
+      _rateLoading = false;
+      _rateLive = r?.live ?? false;
+      if (r != null) _rate.text = _rateText(r.rate);
+    });
+  }
+
+  void _chooseCurrency() {
+    showAppSheet<void>(
+      context,
+      builder: (ctx) => SheetBody(
+        title: 'Currency',
+        subtitle: 'Paid abroad? Enter it as you paid. It\'s converted to rupees when you save.',
+        children: [
+          for (final cur in Currencies.all)
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              selected: cur.code == _currency,
+              leading: SizedBox(
+                width: 48,
+                child: Text(cur.symbol, style: context.text.titleMedium, maxLines: 1, overflow: TextOverflow.fade),
+              ),
+              title: Text(cur.name),
+              trailing: Text(cur.code, style: context.text.labelLarge),
+              onTap: () {
+                Navigator.of(ctx).pop();
+                if (cur.code == _currency) return;
+                setState(() {
+                  _currency = cur.code;
+                  _rate.clear();
+                });
+                _fetchRate();
+              },
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Shares per person; everyone ticked in "Equal" starts with one share.
+  double _weightOf(String uid) => _weights[uid] ?? (_participants.contains(uid) ? 1 : 0);
 
   void _onDescriptionChanged(String text, List<CategoryModel> cats) {
     if (_editing != null || _categoryTouched) return;
@@ -235,7 +327,7 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
       case SplitMode.equal:
         return SplitCalculator.equal(total: _amountValue ?? 0, participants: _participants.toList(), payerUid: payer);
       case SplitMode.exact:
-        return SplitCalculator.exact(total: _amountValue ?? 0, amounts: {
+        return SplitCalculator.exact(total: _amountValue ?? 0, fmt: _fmt, amounts: {
           for (final e in _exact.entries)
             if (e.value.text.trim().isNotEmpty) e.key: Money.parse(e.value.text, allowZero: true).value ?? double.nan,
         });
@@ -244,6 +336,18 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
           for (final e in _percent.entries)
             if (e.value.text.trim().isNotEmpty) e.key: double.tryParse(e.value.text.replaceAll(',', '.')) ?? double.nan,
         });
+      case SplitMode.shares:
+        final people = {..._participants, ..._weights.keys, ..._adjust.keys};
+        return SplitCalculator.shares(
+          total: _amountValue ?? 0,
+          payerUid: payer,
+          fmt: _fmt,
+          weights: {for (final uid in people) uid: _weightOf(uid)},
+          adjustments: {
+            for (final e in _adjust.entries)
+              if (e.value.text.trim().isNotEmpty) e.key: Money.parse(e.value.text, allowZero: true).value ?? double.nan,
+          },
+        );
       case SplitMode.itemized:
         return SplitCalculator.itemized(payerUid: payer, extra: _extra, items: [
           for (final i in _items)
@@ -266,23 +370,50 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
       Toast.show(result.error!, type: ToastType.error);
       return;
     }
+    final rate = _rateValue;
+    if (rate == null) {
+      Toast.show('Enter the exchange rate: rupees for 1 $_currency', type: ToastType.error);
+      return;
+    }
     final category = _snapshotCategory != null && _categoryId == _snapshotCategory!.id
         ? _snapshotCategory!
         : cats.firstWhere((c) => c.id == _categoryId, orElse: () => CategoryModel.others);
     final now = DateTime.now();
     final previous = _editing;
+    // Groups settle in rupees: convert shares so they add up exactly, and keep
+    // what was typed (foreign amounts) in `fx`.
+    final inrShares = _foreign ? Currencies.toRupees(result.shares, rate) : result.shares;
+    final inrTotal = Money.fromPaise(inrShares.values.fold<int>(0, (a, v) => a + Money.toPaise(v)));
+    double inr(double v) => _foreign ? Currencies.convert(v, rate) : v;
+    final typedItems = _mode == SplitMode.itemized
+        ? [
+            for (final i in _items)
+              GroupExpenseItemModel(
+                name: i.name.text.trim(),
+                amount: Money.parse(i.price.text).value ?? 0,
+                memberUids: i.members.toList(),
+              ),
+          ]
+        : null;
+    final typedAdjust = _mode == SplitMode.shares
+        ? {
+            for (final e in _adjust.entries)
+              if ((Money.parse(e.value.text, allowZero: true).value ?? 0) > 0)
+                e.key: Money.parse(e.value.text, allowZero: true).value!,
+          }
+        : null;
     final isTemplate = previous?.isRecurringTemplate ?? _recurring;
     final model = GroupExpenseModel(
       expenseId: previous?.expenseId ?? _newId!,
       payerUid: _payer!,
-      amount: result.total,
+      amount: inrTotal,
       category: category.name,
       categoryIcon: category.iconCode,
       categoryColor: category.colorHex,
       description: _desc.text.trim(),
       notes: _notes.text.trim().isEmpty ? null : _notes.text.trim(),
       splitType: _mode.storageKey,
-      splits: GroupExpenseModel.mergeSettledFlags(newShares: result.shares, newPayer: _payer!, previous: previous),
+      splits: GroupExpenseModel.mergeSettledFlags(newShares: inrShares, newPayer: _payer!, previous: previous),
       date: previous == null && Dates.isSameDay(_date, now) ? now : _date,
       createdAt: previous?.createdAt ?? now,
       createdBy: previous?.createdBy,
@@ -291,17 +422,29 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
       lastGeneratedDate: previous?.lastGeneratedDate,
       generatedFromTemplateId: previous?.generatedFromTemplateId,
       isCancelled: previous?.isCancelled ?? false,
-      items: _mode == SplitMode.itemized
-          ? [
-              for (final i in _items)
-                GroupExpenseItemModel(
-                  name: i.name.text.trim(),
-                  amount: Money.parse(i.price.text).value ?? 0,
-                  memberUids: i.members.toList(),
-                ),
-            ]
+      items: typedItems
+          ?.map((i) => GroupExpenseItemModel(name: i.name, amount: inr(i.amount), memberUids: i.memberUids))
+          .toList(),
+      itemsExtra: _mode == SplitMode.itemized && _extra != 0 ? inr(_extra) : null,
+      shareWeights: _mode == SplitMode.shares
+          ? {
+              for (final uid in {..._participants, ..._weights.keys, ...?typedAdjust?.keys})
+                if (_weightOf(uid) > 0 || (typedAdjust?.containsKey(uid) ?? false)) uid: _weightOf(uid),
+            }
           : null,
-      itemsExtra: _mode == SplitMode.itemized && _extra != 0 ? _extra : null,
+      adjustments: typedAdjust?.map((k, v) => MapEntry(k, inr(v))),
+      fx: _foreign
+          ? ExpenseFx(
+              currency: _currency,
+              rate: rate,
+              amount: result.total,
+              shares: result.shares,
+              items: typedItems,
+              itemsExtra: _mode == SplitMode.itemized && _extra != 0 ? _extra : null,
+              adjustments: typedAdjust,
+            )
+          : null,
+      commentCount: previous?.commentCount ?? 0,
     );
 
     setState(() => _saving = true);
@@ -536,7 +679,7 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
                     child: Column(
                       children: [
                         Text(_extra == 0 ? 'Total from items' : 'Total with tax & charges', style: context.text.labelMedium),
-                        Text(Money.format(result.isValid ? result.total : _itemsTotal() + _extra),
+                        Text(_fmt(result.isValid ? result.total : _itemsTotal() + _extra),
                             style: context.text.displayMedium?.copyWith(fontFeatures: AppTheme.tabular)),
                       ],
                     ),
@@ -544,10 +687,19 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
                 else
                   MoneyField(
                     controller: _amount,
+                    symbol: _symbol,
                     autofocus: _editing == null,
                     onChanged: (_) => setState(() {}),
                     validator: (v) => Money.parse(v).error,
                   ),
+                Center(
+                  child: TextButton.icon(
+                    onPressed: _chooseCurrency,
+                    icon: const Icon(Icons.currency_exchange_rounded, size: 18),
+                    label: Text(_foreign ? '$_currency · change' : 'Paid in another currency?'),
+                  ),
+                ),
+                if (_foreign) _rateCard(context, result),
                 const SizedBox(height: Space.md),
                 AppTextField(
                   controller: _desc,
@@ -654,10 +806,11 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
                   child: SegmentedButton<SplitMode>(
                     showSelectedIcon: false,
                     segments: const [
-                      ButtonSegment(value: SplitMode.equal, label: Text('Equal', maxLines: 1, softWrap: false)),
-                      ButtonSegment(value: SplitMode.exact, label: Text('Exact', maxLines: 1, softWrap: false)),
-                      ButtonSegment(value: SplitMode.percent, label: Text('%', maxLines: 1, softWrap: false)),
-                      ButtonSegment(value: SplitMode.itemized, label: Text('Items', maxLines: 1, softWrap: false)),
+                      ButtonSegment(value: SplitMode.equal, label: _SegLabel('Equal')),
+                      ButtonSegment(value: SplitMode.shares, label: _SegLabel('Shares')),
+                      ButtonSegment(value: SplitMode.exact, label: _SegLabel('Exact')),
+                      ButtonSegment(value: SplitMode.percent, label: _SegLabel('%')),
+                      ButtonSegment(value: SplitMode.itemized, label: _SegLabel('Items')),
                     ],
                     selected: {_mode},
                     onSelectionChanged: (s) => setState(() {
@@ -669,7 +822,7 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
                   ),
                 ),
                 const SizedBox(height: Space.md),
-                _SplitMeter(result: result, mode: _mode),
+                _SplitMeter(result: result, mode: _mode, fmt: _fmt),
                 const SizedBox(height: Space.sm),
                 AnimatedSwitcher(
                   duration: Motion.base,
@@ -767,7 +920,7 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
                   onChanged: (v) => setState(() => v == true ? _participants.add(uid) : _participants.remove(uid)),
                 ),
                 trailing: Text(
-                  _participants.contains(uid) && result.isValid ? Money.format(result.shares[uid] ?? 0) : '—',
+                  _participants.contains(uid) && result.isValid ? _fmt(result.shares[uid] ?? 0) : '—',
                   style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w700, fontFeatures: AppTheme.tabular),
                 ),
                 onTap: () => setState(() => _participants.contains(uid) ? _participants.remove(uid) : _participants.add(uid)),
@@ -787,7 +940,7 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
             for (final uid in people)
               _PersonRow(
                 uid: uid,
-                subtitle: isPct && result.isValid && (result.shares[uid] ?? 0) > 0 ? Money.format(result.shares[uid]!) : null,
+                subtitle: isPct && result.isValid && (result.shares[uid] ?? 0) > 0 ? _fmt(result.shares[uid]!) : null,
                 trailing: SizedBox(
                   width: 110,
                   child: TextField(
@@ -799,7 +952,7 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
                     decoration: InputDecoration(
                       isDense: true,
                       hintText: '0',
-                      prefixText: isPct ? null : '₹ ',
+                      prefixText: isPct ? null : '$_symbol ',
                       suffixText: isPct ? '%' : null,
                     ),
                   ),
@@ -823,6 +976,52 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
               ),
           ],
         );
+      case SplitMode.shares:
+        return Column(
+          children: [
+            for (final uid in people)
+              _PersonRow(
+                uid: uid,
+                subtitle: result.isValid && (result.shares[uid] ?? 0) > 0 ? _fmt(result.shares[uid]!) : null,
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_showAdjust)
+                      SizedBox(
+                        width: 96,
+                        child: TextField(
+                          controller: _ctl(_adjust, uid),
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                          inputFormatters: moneyInputFormatters,
+                          textAlign: TextAlign.right,
+                          style: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w700, fontFeatures: AppTheme.tabular),
+                          decoration: const InputDecoration(isDense: true, hintText: '+0', prefixText: '+'),
+                        ),
+                      ),
+                    _ShareStepper(
+                      value: _weightOf(uid),
+                      onChanged: (v) => setState(() => _weights[uid] = v),
+                    ),
+                  ],
+                ),
+              ),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: () => setState(() => _showAdjust = !_showAdjust),
+                icon: Icon(_showAdjust ? Icons.remove_circle_outline_rounded : Icons.add_circle_outline_rounded, size: 18),
+                label: Text(_showAdjust ? 'Hide adjustments' : 'Add adjustments'),
+              ),
+            ),
+            Text(
+              _showAdjust
+                  ? 'Adjustments are extra amounts for one person (say, +$_symbol 50 for the one who ate more). '
+                      'The rest is split by shares.'
+                  : 'A couple can count as 2 shares. Set someone to 0 to leave them out.',
+              style: context.text.bodySmall,
+            ),
+          ],
+        );
       case SplitMode.itemized:
         final group = ref.read(groupDetailsStreamProvider(widget.groupId)).valueOrNull;
         return Column(
@@ -831,6 +1030,7 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
               Padding(
                 padding: const EdgeInsets.only(bottom: Space.sm),
                 child: _ScanSummary(
+                  fmt: _fmt,
                   bill: _scanned!,
                   currentTotal: result.isValid ? result.total : _itemsTotal() + _extra,
                 ),
@@ -870,7 +1070,7 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
                               keyboardType: const TextInputType.numberWithOptions(decimal: true),
                               inputFormatters: moneyInputFormatters,
                               textAlign: TextAlign.right,
-                              decoration: const InputDecoration(isDense: true, hintText: '0', prefixText: '₹ '),
+                              decoration: InputDecoration(isDense: true, hintText: '0', prefixText: '$_symbol '),
                             ),
                           ),
                           IconButton(
@@ -919,8 +1119,14 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  _ExtraRow(label: 'Tax & charges', hint: 'GST, service…', controller: _charges, onChanged: _onSplitChanged),
-                  _ExtraRow(label: 'Discount', controller: _discount, onChanged: _onSplitChanged),
+                  _ExtraRow(
+                    label: 'Tax & charges',
+                    hint: 'GST, service…',
+                    controller: _charges,
+                    onChanged: _onSplitChanged,
+                    symbol: _symbol,
+                  ),
+                  _ExtraRow(label: 'Discount', controller: _discount, onChanged: _onSplitChanged, symbol: _symbol),
                   const SizedBox(height: 4),
                   Text('Shared in proportion to what each person had.', style: context.text.bodySmall),
                 ],
@@ -931,13 +1137,72 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
               for (final e in result.shares.entries)
                 _PersonRow(
                   uid: e.key,
-                  trailing: Text(Money.format(e.value),
+                  trailing: Text(_fmt(e.value),
                       style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w700, fontFeatures: AppTheme.tabular)),
                 ),
             ],
           ],
         );
     }
+  }
+
+  /// "1 USD = ₹ [83.52]" with the rupee total and where the rate came from.
+  Widget _rateCard(BuildContext context, SplitResult result) {
+    final c = context.aurora;
+    final rate = _rateValue;
+    final total = _mode == SplitMode.itemized ? (result.isValid ? result.total : _itemsTotal() + _extra) : _amountValue;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: Space.sm),
+      child: AppCard(
+        padding: const EdgeInsets.fromLTRB(Space.md, Space.xs, Space.xs, Space.sm),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Text('1 $_currency = ₹', style: context.text.titleSmall),
+                const SizedBox(width: Space.xs),
+                SizedBox(
+                  width: 120,
+                  child: TextField(
+                    controller: _rate,
+                    onChanged: (_) => setState(() => _rateLive = true),
+                    keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                    style: context.text.titleSmall?.copyWith(fontFeatures: AppTheme.tabular),
+                    decoration: const InputDecoration(isDense: true, hintText: 'rate'),
+                  ),
+                ),
+                const Spacer(),
+                _rateLoading
+                    ? const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2)),
+                      )
+                    : IconButton(tooltip: 'Get today\'s rate', icon: const Icon(Icons.refresh_rounded), onPressed: _fetchRate),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(
+              rate == null
+                  ? 'Enter how many rupees 1 $_currency cost you (your card or exchange rate).'
+                  : total == null
+                      ? 'Saved in rupees for the group. Edit the rate if your card charged differently.'
+                      : '≈ ${Money.format(Currencies.convert(total, rate))} for the group'
+                          '${_rateLive ? '' : ' · last saved rate, check it'}',
+              style: context.text.bodySmall?.copyWith(color: rate == null || !_rateLive ? c.warning : null),
+            ),
+            GestureDetector(
+              onTap: () => launchUrl(Uri.parse(FxRates.attributionUrl), mode: LaunchMode.externalApplication),
+              child: Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text('Rates by ExchangeRate-API',
+                    style: context.text.labelSmall?.copyWith(decoration: TextDecoration.underline, letterSpacing: 0)),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   Widget _receiptRow(BuildContext context) {
@@ -1011,7 +1276,8 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
 class _SplitMeter extends StatelessWidget {
   final SplitResult result;
   final SplitMode mode;
-  const _SplitMeter({required this.result, required this.mode});
+  final String Function(num) fmt;
+  const _SplitMeter({required this.result, required this.mode, required this.fmt});
 
   @override
   Widget build(BuildContext context) {
@@ -1020,8 +1286,8 @@ class _SplitMeter extends StatelessWidget {
     final color = ok ? c.positive : (result.remaining < 0 ? c.negative : c.warning);
     final text = ok
         ? (mode == SplitMode.equal
-            ? '${result.shares.length} ${result.shares.length == 1 ? 'person' : 'people'} · adds up to ${Money.format(result.total)}'
-            : 'All assigned · ${Money.format(result.total)}')
+            ? '${result.shares.length} ${result.shares.length == 1 ? 'person' : 'people'} · adds up to ${fmt(result.total)}'
+            : 'All assigned · ${fmt(result.total)}')
         : result.error!;
     return AnimatedContainer(
       duration: Motion.base,
@@ -1222,7 +1488,8 @@ class _ScanningOverlay extends StatelessWidget {
 class _ScanSummary extends StatelessWidget {
   final ParsedBill bill;
   final double currentTotal;
-  const _ScanSummary({required this.bill, required this.currentTotal});
+  final String Function(num) fmt;
+  const _ScanSummary({required this.bill, required this.currentTotal, required this.fmt});
 
   @override
   Widget build(BuildContext context) {
@@ -1233,9 +1500,9 @@ class _ScanSummary extends StatelessWidget {
     final n = bill.items.length;
     final items = '$n ${n == 1 ? 'item' : 'items'}';
     final headline = ok
-        ? 'Read $items. Matches the bill: ${Money.format(printed)}'
+        ? 'Read $items. Matches the bill: ${fmt(printed)}'
         : printed != null
-            ? 'The bill says ${Money.format(printed)}, these add up to ${Money.format(currentTotal)}. '
+            ? 'The bill says ${fmt(printed)}, these add up to ${fmt(currentTotal)}. '
                 'Check for a missed or misread line.'
             : 'Read $items. No total found, so check them against the bill.';
     return Container(
@@ -1272,7 +1539,8 @@ class _ExtraRow extends StatelessWidget {
   final String? hint;
   final TextEditingController controller;
   final VoidCallback onChanged;
-  const _ExtraRow({required this.label, required this.controller, required this.onChanged, this.hint});
+  final String symbol;
+  const _ExtraRow({required this.label, required this.controller, required this.onChanged, this.hint, this.symbol = '₹'});
 
   @override
   Widget build(BuildContext context) {
@@ -1298,11 +1566,60 @@ class _ExtraRow extends StatelessWidget {
               inputFormatters: moneyInputFormatters,
               textAlign: TextAlign.right,
               style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w700, fontFeatures: AppTheme.tabular),
-              decoration: const InputDecoration(isDense: true, hintText: '0', prefixText: '₹ '),
+              decoration: InputDecoration(isDense: true, hintText: '0', prefixText: '$symbol '),
             ),
           ),
         ],
       ),
+    );
+  }
+}
+
+/// Five split modes share one row: shrink a label rather than clip it.
+class _SegLabel extends StatelessWidget {
+  final String text;
+  const _SegLabel(this.text);
+
+  @override
+  Widget build(BuildContext context) =>
+      FittedBox(fit: BoxFit.scaleDown, child: Text(text, maxLines: 1, softWrap: false));
+}
+
+/// − 2 + : whole shares (0 leaves someone out).
+class _ShareStepper extends StatelessWidget {
+  final double value;
+  final ValueChanged<double> onChanged;
+  const _ShareStepper({required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.aurora;
+    final label = value == value.roundToDouble() ? value.toInt().toString() : value.toString();
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        IconButton(
+          tooltip: 'One share less',
+          visualDensity: VisualDensity.compact,
+          onPressed: value <= 0 ? null : () => onChanged((value - 1).clamp(0, 99).toDouble()),
+          icon: const Icon(Icons.remove_circle_outline_rounded),
+        ),
+        SizedBox(
+          width: 28,
+          child: Text(label,
+              textAlign: TextAlign.center,
+              style: context.text.titleMedium?.copyWith(
+                fontFeatures: AppTheme.tabular,
+                color: value <= 0 ? c.textMuted : c.text,
+              )),
+        ),
+        IconButton(
+          tooltip: 'One share more',
+          visualDensity: VisualDensity.compact,
+          onPressed: value >= 99 ? null : () => onChanged((value + 1).floorToDouble().clamp(0, 99).toDouble()),
+          icon: const Icon(Icons.add_circle_outline_rounded),
+        ),
+      ],
     );
   }
 }

@@ -10,6 +10,7 @@ import '../../auth/data/auth_repository.dart';
 import '../../notifications/data/notifications_repository.dart';
 import '../../notifications/domain/notification_model.dart';
 import '../../receipts/data/receipts_repository.dart';
+import '../domain/expense_comment.dart';
 import '../domain/group_activity_model.dart';
 import '../domain/group_expense_model.dart';
 import '../domain/group_model.dart';
@@ -34,6 +35,13 @@ final groupActivityStreamProvider =
     StreamProvider.autoDispose.family<List<GroupActivityModel>, String>((ref, groupId) {
   if (ref.watch(currentUidProvider) == null) return Stream.value(const []);
   return ref.watch(groupExpensesRepositoryProvider).streamActivity(groupId);
+});
+
+/// Comments on one expense, oldest first.
+final expenseCommentsProvider =
+    StreamProvider.autoDispose.family<List<ExpenseComment>, ({String groupId, String expenseId})>((ref, key) {
+  if (ref.watch(currentUidProvider) == null) return Stream.value(const []);
+  return ref.watch(groupExpensesRepositoryProvider).streamComments(key.groupId, key.expenseId);
 });
 
 final groupExpensesRepositoryProvider = Provider<GroupExpensesRepository>((ref) {
@@ -103,6 +111,63 @@ class GroupExpensesRepository {
             .map((d) => GroupExpenseModel.fromMap(d.data(), d.id))
             .where((e) => !e.isDeleted)
             .toList()));
+  }
+
+  // ── Comments ────────────────────────────────────────────────────────────
+
+  CollectionReference<Map<String, dynamic>> _comments(String groupId, String expenseId) =>
+      _expenses(groupId).doc(expenseId).collection('comments');
+
+  Stream<List<ExpenseComment>> streamComments(String groupId, String expenseId) {
+    return retryOnPermissionDenied(() => _comments(groupId, expenseId)
+        .orderBy('createdAt')
+        .limit(200)
+        .snapshots()
+        .map((s) => s.docs.map((d) => ExpenseComment.fromMap(d.data(), d.id)).toList()));
+  }
+
+  /// Adds a comment and bumps the expense's comment count; everyone involved
+  /// (payer and people in the split) gets a notification.
+  Future<WriteOutcome> addComment({
+    required GroupModel group,
+    required GroupExpenseModel expense,
+    required String text,
+  }) async {
+    final clean = text.trim();
+    if (clean.isEmpty) throw const AppException('Write something first.');
+    if (clean.length > ExpenseComment.maxLength) {
+      throw const AppException('Keep comments under ${ExpenseComment.maxLength} characters.');
+    }
+    final batch = _db.batch();
+    final doc = _comments(group.groupId, expense.expenseId).doc();
+    batch.set(
+      doc,
+      ExpenseComment(id: doc.id, authorUid: _me, authorName: _myName, text: clean, createdAt: DateTime.now()).toMap(),
+    );
+    batch.update(_expenses(group.groupId).doc(expense.expenseId), {'commentCount': FieldValue.increment(1)});
+    final outcome = await commitWithTimeout(batch.commit());
+    final label = expense.isPayment ? 'a payment' : '"${expense.description}"';
+    final preview = clean.length > 80 ? '${clean.substring(0, 80)}…' : clean;
+    runInBackground(() => _notify.send(
+          recipients: group.members.where((m) => m == expense.payerUid || expense.splits.containsKey(m)),
+          type: NotificationModel.expenseComment,
+          message: '$_myName on $label: $preview',
+          groupId: group.groupId,
+          groupName: group.name,
+          expenseId: expense.expenseId,
+        ), label: 'comment notify');
+    return outcome;
+  }
+
+  Future<WriteOutcome> deleteComment({
+    required String groupId,
+    required String expenseId,
+    required String commentId,
+  }) {
+    final batch = _db.batch();
+    batch.delete(_comments(groupId, expenseId).doc(commentId));
+    batch.update(_expenses(groupId).doc(expenseId), {'commentCount': FieldValue.increment(-1)});
+    return commitWithTimeout(batch.commit());
   }
 
   /// Current (non-deleted, non-template) expenses, read once from the server.

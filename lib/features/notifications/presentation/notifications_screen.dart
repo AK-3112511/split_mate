@@ -90,6 +90,7 @@ class _NotificationTile extends ConsumerWidget {
       NotificationModel.expenseAdded => (Icons.receipt_long_rounded, c.primary),
       NotificationModel.expenseEdited => (Icons.edit_rounded, c.secondary),
       NotificationModel.expenseDeleted => (Icons.delete_outline_rounded, c.negative),
+      NotificationModel.expenseComment => (Icons.chat_bubble_outline_rounded, c.primary),
       NotificationModel.memberLeft || NotificationModel.memberRemoved => (Icons.person_remove_rounded, c.negative),
       NotificationModel.groupDeleted => (Icons.group_off_rounded, c.negative),
       NotificationModel.groupEdited => (Icons.drive_file_rename_outline_rounded, c.secondary),

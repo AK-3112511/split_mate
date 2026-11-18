@@ -7,11 +7,13 @@ import '../../../../core/theme/tokens.dart';
 import '../../../../core/utils/friendly_error.dart';
 import '../../../../core/utils/haptics.dart';
 import '../../../../shared_widgets/avatars.dart';
+import '../../../../shared_widgets/bits.dart';
 import '../../../../shared_widgets/buttons.dart';
 import '../../../../shared_widgets/feedback.dart';
 import '../../../../shared_widgets/inputs.dart';
 import '../../../friends/data/friends_repository.dart';
 import '../../data/groups_repository.dart';
+import 'trip_widgets.dart';
 import '../../domain/group_model.dart';
 
 /// Create a group and (optionally) invite friends. Navigates into it after.
@@ -31,6 +33,9 @@ class _CreateGroupState extends ConsumerState<_CreateGroup> {
   final _form = GlobalKey<FormState>();
   final Set<String> _selected = {};
   bool _saving = false;
+  bool _trip = false;
+  DateTimeRange? _dates;
+  String _currency = 'INR';
 
   @override
   void dispose() {
@@ -40,9 +45,19 @@ class _CreateGroupState extends ConsumerState<_CreateGroup> {
 
   Future<void> _create() async {
     if (_saving || !_form.currentState!.validate()) return;
+    if (_trip && _dates == null) {
+      Toast.show('Pick the trip dates, or switch off "It\'s a trip"', type: ToastType.error);
+      return;
+    }
     setState(() => _saving = true);
     try {
-      final id = await ref.read(groupsRepositoryProvider).createGroup(_name.text, _selected.toList());
+      final id = await ref.read(groupsRepositoryProvider).createGroup(
+            _name.text,
+            _selected.toList(),
+            tripStart: _trip ? _dates!.start : null,
+            tripEnd: _trip ? _dates!.end : null,
+            currency: _trip ? _currency : null,
+          );
       Haptics.success();
       if (!mounted) return;
       final router = GoRouter.of(context);
@@ -75,6 +90,21 @@ class _CreateGroupState extends ConsumerState<_CreateGroup> {
             validator: (v) => (v?.trim().isEmpty ?? true) ? 'Give your group a name' : null,
           ),
         ),
+        SwitchListTile(
+          contentPadding: EdgeInsets.zero,
+          value: _trip,
+          onChanged: (v) => setState(() => _trip = v),
+          secondary: const IconBadge(Icons.luggage_rounded, size: 40),
+          title: const Text('It\'s a trip'),
+          subtitle: const Text('Dates, a summary at the end, settle everything'),
+        ),
+        if (_trip)
+          TripFields(
+            dates: _dates,
+            currency: _currency,
+            onDates: (d) => setState(() => _dates = d),
+            onCurrency: (c) => setState(() => _currency = c),
+          ),
         const SizedBox(height: Space.lg),
         Text('Invite friends', style: context.text.titleSmall),
         const SizedBox(height: Space.xs),

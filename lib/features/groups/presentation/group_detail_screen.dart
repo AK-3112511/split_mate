@@ -29,6 +29,7 @@ import 'tabs/expenses_tab.dart';
 import 'tabs/members_tab.dart';
 import 'tabs/stats_tab.dart';
 import 'widgets/group_expense_widgets.dart';
+import 'widgets/trip_widgets.dart';
 
 String groupShareText(GroupModel g) =>
     'Join "${g.name}" on SplitMate 💸\n\n${groupInviteLink(g.inviteCode ?? '')}\n\n'
@@ -114,7 +115,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> with Sing
             handle: NestedScrollView.sliverOverlapAbsorberHandleFor(context),
             sliver: SliverAppBar(
               pinned: true,
-              expandedHeight: 228,
+              expandedHeight: group.isTrip ? 250 : 228,
               foregroundColor: c.onPop,
               backgroundColor: pop,
               iconTheme: IconThemeData(color: c.onPop),
@@ -143,6 +144,19 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> with Sing
                           style: context.text.headlineLarge?.copyWith(color: c.onPop),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis),
+                      if (group.isTrip)
+                        Row(
+                          children: [
+                            Icon(Icons.luggage_rounded, size: 16, color: c.onPop),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(tripStatus(group, DateTime.now()),
+                                  style: context.text.labelLarge?.copyWith(color: c.onPop),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis),
+                            ),
+                          ],
+                        ),
                       const SizedBox(height: Space.xs),
                       Row(
                         children: [
@@ -228,6 +242,10 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> with Sing
             await _exportPdf(group);
           case 'recurring':
             context.push('/recurring');
+          case 'trip-summary':
+            context.push('/groups/${group.groupId}/trip');
+          case 'trip':
+            await showTripSettingsSheet(context, group);
           case 'rename':
             await _rename(context, group);
           case 'leave':
@@ -240,6 +258,16 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> with Sing
         const PopupMenuItem(value: 'share', child: ListTile(leading: Icon(Icons.share_rounded), title: Text('Share invite'))),
         const PopupMenuItem(value: 'pdf', child: ListTile(leading: Icon(Icons.picture_as_pdf_rounded), title: Text('Export PDF'))),
         const PopupMenuItem(value: 'recurring', child: ListTile(leading: Icon(Icons.autorenew_rounded), title: Text('Recurring expenses'))),
+        if (group.isTrip)
+          const PopupMenuItem(value: 'trip-summary', child: ListTile(leading: Icon(Icons.summarize_rounded), title: Text('Trip summary'))),
+        if (isAdmin)
+          PopupMenuItem(
+            value: 'trip',
+            child: ListTile(
+              leading: const Icon(Icons.luggage_rounded),
+              title: Text(group.isTrip ? 'Trip dates & currency' : 'Make it a trip'),
+            ),
+          ),
         if (isAdmin)
           const PopupMenuItem(value: 'rename', child: ListTile(leading: Icon(Icons.edit_rounded), title: Text('Rename group'))),
         const PopupMenuItem(value: 'leave', child: ListTile(leading: Icon(Icons.logout_rounded), title: Text('Leave group'))),

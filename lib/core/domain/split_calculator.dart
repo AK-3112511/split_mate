@@ -5,7 +5,10 @@ enum SplitMode {
   equal('equal', 'Equally'),
   exact('custom', 'Exact amounts'),
   percent('percentage', 'Percentages'),
-  itemized('itemized', 'Itemized');
+  itemized('itemized', 'Itemized'),
+
+  /// Weighted ("2 shares for a couple"), with optional fixed extras per person.
+  shares('shares', 'By shares');
 
   /// Value persisted in Firestore (kept compatible with v1 data).
   final String storageKey;
@@ -78,6 +81,7 @@ class SplitCalculator {
   static SplitResult exact({
     required double total,
     required Map<String, double> amounts,
+    String Function(num) fmt = Money.format,
   }) {
     final totalPaise = Money.toPaise(total);
     if (totalPaise <= 0) return SplitResult.invalid('Enter an amount');
@@ -102,8 +106,8 @@ class SplitCalculator {
       final remaining = Money.fromPaise(diff);
       return SplitResult.invalid(
         diff > 0
-            ? '${Money.format(remaining)} left to assign'
-            : '${Money.format(-remaining)} over the total',
+            ? '${fmt(remaining)} left to assign'
+            : '${fmt(-remaining)} over the total',
         total: total,
         remaining: remaining,
       );
@@ -216,6 +220,70 @@ class SplitCalculator {
     if (Money.fromPaise(totalPaise) > Money.maxAmount) {
       return SplitResult.invalid('Total is too large');
     }
+    return SplitResult.ok(_toRupees(shares), Money.fromPaise(totalPaise));
+  }
+
+  /// Splits [total] by [weights] (1 = one share; 0.5 and 2 work too) after
+  /// giving each person their fixed [adjustments] ("+₹50 for the one who ate
+  /// more"). Someone with only an adjustment and no share pays just that.
+  static SplitResult shares({
+    required double total,
+    required Map<String, double> weights,
+    Map<String, double> adjustments = const {},
+    required String payerUid,
+    String Function(num) fmt = Money.format,
+  }) {
+    final totalPaise = Money.toPaise(total);
+    if (totalPaise <= 0) return SplitResult.invalid('Enter an amount');
+
+    // Weights in hundredths of a share, so 1.5 shares stays exact.
+    final w = <String, int>{};
+    for (final e in weights.entries) {
+      if (e.value.isNaN || e.value.isInfinite || e.value < 0) {
+        return SplitResult.invalid('Shares can\'t be negative', total: total);
+      }
+      final v = (e.value * 100).round();
+      if (v > 0) w[e.key] = v;
+    }
+    final adj = <String, int>{};
+    for (final e in adjustments.entries) {
+      if (e.value.isNaN || e.value.isInfinite || e.value < 0) {
+        return SplitResult.invalid('Adjustments can\'t be negative', total: total);
+      }
+      final p = Money.toPaise(e.value);
+      if (p > 0) adj[e.key] = p;
+    }
+    final adjPaise = adj.values.fold<int>(0, (a, b) => a + b);
+    final rest = totalPaise - adjPaise;
+    if (rest < 0) {
+      return SplitResult.invalid(
+        'Adjustments are ${fmt(Money.fromPaise(-rest))} more than the total',
+        total: total,
+        remaining: Money.fromPaise(rest),
+      );
+    }
+    if (w.isEmpty && rest > 0) {
+      return SplitResult.invalid('Give at least one person a share', total: total, remaining: Money.fromPaise(rest));
+    }
+
+    final shares = <String, int>{};
+    if (rest > 0) {
+      final sumW = w.values.fold<int>(0, (a, b) => a + b);
+      var assigned = 0;
+      for (final e in w.entries) {
+        final p = rest * e.value ~/ sumW;
+        shares[e.key] = p;
+        assigned += p;
+      }
+      final leftover = rest - assigned;
+      if (leftover > 0) {
+        final receiver = w.containsKey(payerUid)
+            ? payerUid
+            : (w.entries.toList()..sort((a, b) => b.value.compareTo(a.value))).first.key;
+        shares[receiver] = shares[receiver]! + leftover;
+      }
+    }
+    adj.forEach((uid, p) => shares[uid] = (shares[uid] ?? 0) + p);
     return SplitResult.ok(_toRupees(shares), Money.fromPaise(totalPaise));
   }
 

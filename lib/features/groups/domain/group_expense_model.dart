@@ -50,6 +50,72 @@ class GroupExpenseItemModel {
   }
 }
 
+Map<String, double>? _doubleMap(dynamic raw) {
+  if (raw is! Map) return null;
+  final out = <String, double>{};
+  raw.forEach((k, v) {
+    if (v is num && v.isFinite) out[k.toString()] = v.toDouble();
+  });
+  return out.isEmpty ? null : out;
+}
+
+List<GroupExpenseItemModel>? _items(dynamic raw) => raw is List
+    ? raw.whereType<Map>().map((i) => GroupExpenseItemModel.fromMap(Map<String, dynamic>.from(i))).toList()
+    : null;
+
+/// An expense entered in a foreign currency. The expense's own amount,
+/// splits, items and adjustments are in rupees (so balances, settling and
+/// older app versions just work); this keeps what was actually typed.
+class ExpenseFx {
+  final String currency;
+
+  /// ₹ per 1 unit of [currency].
+  final double rate;
+  final double amount;
+  final Map<String, double> shares;
+  final List<GroupExpenseItemModel>? items;
+  final double? itemsExtra;
+  final Map<String, double>? adjustments;
+
+  const ExpenseFx({
+    required this.currency,
+    required this.rate,
+    required this.amount,
+    required this.shares,
+    this.items,
+    this.itemsExtra,
+    this.adjustments,
+  });
+
+  Map<String, dynamic> toMap() => {
+        'currency': currency,
+        'rate': rate,
+        'amount': amount,
+        'shares': shares,
+        if (items != null) 'items': items!.map((i) => i.toMap()).toList(),
+        if (itemsExtra != null && itemsExtra != 0) 'itemsExtra': itemsExtra,
+        if (adjustments != null && adjustments!.isNotEmpty) 'adjustments': adjustments,
+      };
+
+  static ExpenseFx? fromMap(dynamic raw) {
+    if (raw is! Map) return null;
+    final currency = raw['currency'];
+    final rate = raw['rate'];
+    final amount = raw['amount'];
+    if (currency is! String || rate is! num || rate <= 0 || amount is! num) return null;
+    final extra = raw['itemsExtra'];
+    return ExpenseFx(
+      currency: currency,
+      rate: rate.toDouble(),
+      amount: amount.toDouble(),
+      shares: _doubleMap(raw['shares']) ?? const {},
+      items: _items(raw['items']),
+      itemsExtra: extra is num ? extra.toDouble() : null,
+      adjustments: _doubleMap(raw['adjustments']),
+    );
+  }
+}
+
 /// A shared expense or a payment between two members, inside a group.
 class GroupExpenseModel implements LedgerEntry {
   static const String typeExpense = 'expense';
@@ -95,6 +161,16 @@ class GroupExpenseModel implements LedgerEntry {
   /// negative). Spread over people in proportion to what they had.
   final double? itemsExtra;
 
+  /// "By shares" split: shares per person (1, 2, 0.5…) and fixed extras (₹).
+  final Map<String, double>? shareWeights;
+  final Map<String, double>? adjustments;
+
+  /// Set when the expense was entered in another currency.
+  final ExpenseFx? fx;
+
+  /// Number of comments (kept on the expense so lists can show it).
+  final int commentCount;
+
   const GroupExpenseModel({
     required this.expenseId,
     required this.payerUid,
@@ -121,6 +197,10 @@ class GroupExpenseModel implements LedgerEntry {
     this.isCancelled = false,
     this.items,
     this.itemsExtra,
+    this.shareWeights,
+    this.adjustments,
+    this.fx,
+    this.commentCount = 0,
   });
 
   /// Payment records settle debts; they're not spending.
@@ -166,6 +246,10 @@ class GroupExpenseModel implements LedgerEntry {
         'isCancelled': isCancelled,
         'items': items?.map((i) => i.toMap()).toList(),
         if (itemsExtra != null && itemsExtra != 0) 'itemsExtra': itemsExtra,
+        if (shareWeights != null) 'shareWeights': shareWeights,
+        if (adjustments != null && adjustments!.isNotEmpty) 'adjustments': adjustments,
+        if (fx != null) 'fx': fx!.toMap(),
+        if (commentCount > 0) 'commentCount': commentCount,
       };
 
   factory GroupExpenseModel.fromMap(Map<String, dynamic> map, String id) {
@@ -210,6 +294,10 @@ class GroupExpenseModel implements LedgerEntry {
       itemsExtra: map['itemsExtra'] is num && (map['itemsExtra'] as num).isFinite
           ? (map['itemsExtra'] as num).toDouble()
           : null,
+      shareWeights: _doubleMap(map['shareWeights']),
+      adjustments: _doubleMap(map['adjustments']),
+      fx: ExpenseFx.fromMap(map['fx']),
+      commentCount: map['commentCount'] is num ? (map['commentCount'] as num).toInt().clamp(0, 1 << 20) : 0,
     );
   }
 

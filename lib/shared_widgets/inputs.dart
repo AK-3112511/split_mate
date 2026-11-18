@@ -101,6 +101,9 @@ class MoneyField extends StatelessWidget {
   final FocusNode? focusNode;
   final TextInputAction? textInputAction;
 
+  /// Currency symbol in front of the amount (₹ unless entered abroad).
+  final String symbol;
+
   const MoneyField({
     super.key,
     required this.controller,
@@ -109,6 +112,7 @@ class MoneyField extends StatelessWidget {
     this.autofocus = false,
     this.focusNode,
     this.textInputAction,
+    this.symbol = '₹',
   });
 
   @override
@@ -121,7 +125,7 @@ class MoneyField extends StatelessWidget {
       children: [
         Padding(
           padding: const EdgeInsets.only(top: Space.xs),
-          child: Text('₹', style: style?.copyWith(color: c.textMuted)),
+          child: Text(symbol, style: style?.copyWith(color: c.textMuted)),
         ),
         const SizedBox(width: 6),
         Flexible(

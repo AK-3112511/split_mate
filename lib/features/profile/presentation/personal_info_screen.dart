@@ -11,6 +11,7 @@ import '../../../shared_widgets/code_chip.dart';
 import '../../../shared_widgets/feedback.dart';
 import '../../../shared_widgets/inputs.dart';
 import '../../auth/data/auth_repository.dart';
+import '../../groups/presentation/widgets/settle_up.dart';
 import '../../friends/presentation/friends_screen.dart' show friendShareText;
 
 /// Name, email, friend code and UPI ID. (v1's "primary currency" did nothing — removed.)
@@ -172,6 +173,15 @@ class _PersonalInfoScreenState extends ConsumerState<PersonalInfoScreen> {
                 return AuthRepository.upiPattern.hasMatch(t) ? null : 'Looks like name@bank (e.g. riya@okicici)';
               },
             ),
+            if ((profile?.upiId ?? '').isNotEmpty)
+              Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  onPressed: () => showUpiQrSheet(context, vpa: profile!.upiId!, name: profile.displayName),
+                  icon: const Icon(Icons.qr_code_2_rounded, size: 18),
+                  label: const Text('Show my UPI QR'),
+                ),
+              ),
             if (profile?.createdAt != null) ...[
               const SizedBox(height: Space.xl),
               Center(child: Text('Member since ${Dates.monthYear(profile!.createdAt!)}', style: context.text.bodySmall)),

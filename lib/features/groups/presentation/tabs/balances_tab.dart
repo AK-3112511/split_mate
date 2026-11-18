@@ -137,14 +137,14 @@ class _BalancesTabState extends ConsumerState<BalancesTab> with AutomaticKeepAli
                 else ...[
                   SliverList.builder(
                     itemCount: mine.length,
-                    itemBuilder: (_, i) => _DebtCard(group: widget.group, debt: mine[i], me: me, expenses: expenses)
+                    itemBuilder: (_, i) => DebtCard(group: widget.group, debt: mine[i], me: me, expenses: expenses)
                         .entrance(context, index: i),
                   ),
                   if (others.isNotEmpty)
                     const SliverToBoxAdapter(child: SectionHeader('Between others')),
                   SliverList.builder(
                     itemCount: others.length,
-                    itemBuilder: (_, i) => _DebtCard(group: widget.group, debt: others[i], me: me, expenses: expenses),
+                    itemBuilder: (_, i) => DebtCard(group: widget.group, debt: others[i], me: me, expenses: expenses),
                   ),
                 ],
               ];
@@ -157,12 +157,21 @@ class _BalancesTabState extends ConsumerState<BalancesTab> with AutomaticKeepAli
   }
 }
 
-class _DebtCard extends ConsumerWidget {
+/// One debt with its actions: pay via UPI, show my QR, remind, record.
+class DebtCard extends ConsumerWidget {
   final GroupModel group;
   final Transfer debt;
   final String me;
   final List<GroupExpenseModel> expenses;
-  const _DebtCard({required this.group, required this.debt, required this.me, required this.expenses});
+  final EdgeInsetsGeometry padding;
+  const DebtCard({
+    super.key,
+    required this.group,
+    required this.debt,
+    required this.me,
+    required this.expenses,
+    this.padding = const EdgeInsets.fromLTRB(Space.gutter, Space.sm, Space.gutter, 0),
+  });
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -177,6 +186,7 @@ class _DebtCard extends ConsumerWidget {
         ? ref.watch(lastReminderProvider((groupId: group.groupId, recipientUid: debt.fromUid))).valueOrNull
         : null;
     final canRemind = NotificationsRepository.canRemind(lastReminder);
+    final myUpi = owedToMe ? ref.watch(userProfileProvider(me)).valueOrNull?.upiId : null;
 
     final sentence = iOwe
         ? 'You owe $to'
@@ -185,7 +195,7 @@ class _DebtCard extends ConsumerWidget {
             : '$from owes $to';
 
     return Padding(
-      padding: const EdgeInsets.fromLTRB(Space.gutter, Space.sm, Space.gutter, 0),
+      padding: padding,
       child: AppCard(
         child: Column(
           children: [
@@ -230,18 +240,36 @@ class _DebtCard extends ConsumerWidget {
                     const SizedBox(width: Space.sm),
                   ],
                   if (owedToMe) ...[
+                    IconButton.outlined(
+                      tooltip: 'Show my UPI QR',
+                      icon: const Icon(Icons.qr_code_2_rounded),
+                      onPressed: () {
+                        if (myUpi == null || myUpi.isEmpty) {
+                          askForUpiId(context);
+                          return;
+                        }
+                        showUpiQrSheet(
+                          context,
+                          vpa: myUpi,
+                          name: ref.read(realNameProvider(me)),
+                          amount: debt.amount,
+                          note: 'SplitMate · ${group.name}',
+                          onReceived: () => showRecordPaymentSheet(context, group: group, debt: debt, expenses: expenses),
+                        );
+                      },
+                    ),
+                    const SizedBox(width: Space.xs),
                     Expanded(
                       child: isGuestId(debt.fromUid)
                           // Guests have no SplitMate inbox: WhatsApp only.
-                          ? OutlinedButton.icon(
+                          // Text only: with the QR button there's no room for icons too.
+                          ? OutlinedButton(
                               onPressed: () => remindOnWhatsApp(ref, group: group, debt: debt),
-                              icon: const Icon(Icons.chat_rounded, size: 18),
-                              label: const Text('WhatsApp'),
+                              child: const FittedBox(fit: BoxFit.scaleDown, child: Text('WhatsApp', maxLines: 1)),
                             )
-                          : OutlinedButton.icon(
+                          : OutlinedButton(
                               onPressed: () => _chooseReminder(context, ref, canRemind),
-                              icon: const Icon(Icons.notifications_active_outlined, size: 18),
-                              label: const Text('Remind'),
+                              child: const FittedBox(fit: BoxFit.scaleDown, child: Text('Remind', maxLines: 1)),
                             ),
                     ),
                     const SizedBox(width: Space.sm),
@@ -254,7 +282,10 @@ class _DebtCard extends ConsumerWidget {
                           )
                         : FilledButton(
                             onPressed: () => showRecordPaymentSheet(context, group: group, debt: debt, expenses: expenses),
-                            child: Text(owedToMe ? 'Received' : 'Record', maxLines: 1),
+                            child: FittedBox(
+                              fit: BoxFit.scaleDown,
+                              child: Text(owedToMe ? 'Received' : 'Record', maxLines: 1),
+                            ),
                           ),
                   ),
                 ],

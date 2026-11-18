@@ -10,6 +10,7 @@ import '../domain/group_activity_model.dart';
 import '../domain/guest.dart';
 import '../domain/group_invite_model.dart';
 import '../domain/group_model.dart';
+import '../domain/trip_summary.dart';
 
 /// Groups I'm a member of (deleted groups hidden), newest first.
 final groupsStreamProvider = StreamProvider<List<GroupModel>>((ref) {
@@ -208,7 +209,13 @@ class GroupsRepository {
 
   // ── Create / join ─────────────────────────────────────────────────────────
 
-  Future<String> createGroup(String name, List<String> inviteUids) async {
+  Future<String> createGroup(
+    String name,
+    List<String> inviteUids, {
+    DateTime? tripStart,
+    DateTime? tripEnd,
+    String? currency,
+  }) async {
     final me = _me;
     final clean = name.trim();
     if (clean.isEmpty) throw const AppException('Give your group a name.');
@@ -226,6 +233,9 @@ class GroupsRepository {
         createdAt: DateTime.now(),
         createdBy: me,
         inviteCode: code,
+        tripStart: tripStart == null ? null : DateTime(tripStart.year, tripStart.month, tripStart.day),
+        tripEnd: tripEnd == null ? null : DateTime(tripEnd.year, tripEnd.month, tripEnd.day),
+        currency: currency == null || currency == 'INR' ? null : currency,
       ).toMap(),
       'updatedAt': FieldValue.serverTimestamp(),
     });
@@ -493,6 +503,30 @@ class GroupsRepository {
           groupId: group.groupId,
           groupName: clean,
         ), label: 'rename notify');
+  }
+
+  /// Admin: set the trip's dates and currency, or turn trip mode off (nulls).
+  Future<void> setTrip(GroupModel group, {DateTime? start, DateTime? end, String? currency}) async {
+    _requireAdmin(group);
+    if ((start == null) != (end == null)) throw const AppException('Pick both the first and the last day.');
+    if (start != null && end!.isBefore(start)) throw const AppException('The trip has to end after it starts.');
+    final foreign = currency != null && currency != 'INR';
+    final batch = _db.batch();
+    batch.update(_group(group.groupId), {
+      'tripStart': start == null ? FieldValue.delete() : Timestamp.fromDate(DateTime(start.year, start.month, start.day)),
+      'tripEnd': end == null ? FieldValue.delete() : Timestamp.fromDate(DateTime(end.year, end.month, end.day)),
+      'currency': foreign ? currency : FieldValue.delete(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    _activity(
+      batch,
+      group.groupId,
+      GroupActivityModel.groupEdited,
+      start == null
+          ? '$_myName turned off trip mode'
+          : '$_myName set the trip: ${TripSummary.dateRange(start, end!)}${foreign ? ' · $currency' : ''}',
+    );
+    await commitWithTimeout(batch.commit());
   }
 
   /// Issues a new join code; the old one stops working immediately.

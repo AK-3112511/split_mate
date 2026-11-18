@@ -8,6 +8,7 @@ class NotificationModel {
   static const String expenseAdded = 'expense_added';
   static const String expenseEdited = 'expense_edited';
   static const String expenseDeleted = 'expense_deleted';
+  static const String expenseComment = 'expense_comment';
   static const String memberLeft = 'member_left';
   static const String memberRemoved = 'member_removed';
   static const String groupEdited = 'group_edited';

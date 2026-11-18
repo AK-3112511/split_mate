@@ -1,5 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../../../../core/domain/settlement.dart';
 import '../../../../core/theme/aurora_colors.dart';
@@ -21,13 +23,14 @@ import '../../domain/group_model.dart';
 ///
 /// Encoded by hand with %20 for spaces: `Uri.queryParameters` uses '+', which
 /// UPI apps (Google Pay) show literally ("SplitMate+·+Trip").
-Uri upiUri({required String vpa, required String name, required double amount, required String note}) {
+/// Without [amount] the payer types it (a plain "pay me" QR).
+Uri upiUri({required String vpa, required String name, double? amount, String? note}) {
   final params = {
     'pa': vpa.trim(),
     'pn': name,
-    'am': Money.round2(amount).toStringAsFixed(2),
+    if (amount != null) 'am': Money.round2(amount).toStringAsFixed(2),
     'cu': 'INR',
-    'tn': note.length > 50 ? note.substring(0, 50) : note,
+    if (note != null && note.isNotEmpty) 'tn': note.length > 50 ? note.substring(0, 50) : note,
   };
   final query = params.entries.map((e) => '${e.key}=${Uri.encodeComponent(e.value)}').join('&');
   return Uri.parse('upi://pay?$query');
@@ -172,6 +175,82 @@ Future<void> payViaUpi(
   if (paid && context.mounted) {
     await showRecordPaymentSheet(context, group: group, debt: debt, expenses: expenses);
   }
+}
+
+/// A UPI QR the other person scans with any UPI app, for paying back in
+/// person. With [amount] the amount is filled in for them.
+Future<void> showUpiQrSheet(
+  BuildContext context, {
+  required String vpa,
+  required String name,
+  double? amount,
+  String? note,
+  VoidCallback? onReceived,
+}) {
+  return showAppSheet<void>(
+    context,
+    builder: (ctx) {
+      final uri = upiUri(vpa: vpa, name: name, amount: amount, note: note);
+      return SheetBody(
+        title: amount == null ? 'Your UPI QR' : 'Scan to pay ${Money.format(amount)}',
+        subtitle: 'Open any UPI app (GPay, PhonePe, Paytm…) and scan this.',
+        children: [
+          Center(
+            child: Container(
+              padding: const EdgeInsets.all(Space.md),
+              decoration: BoxDecoration(
+                // Always dark on white, even in dark mode: scanners need contrast.
+                color: Colors.white,
+                borderRadius: Radii.card,
+                border: Border.all(color: Palette.ink, width: Brutal.border),
+                boxShadow: const [BoxShadow(color: Palette.ink, offset: Offset(5, 5))],
+              ),
+              child: QrImageView(
+                data: uri.toString(),
+                size: 236,
+                backgroundColor: Colors.white,
+                errorCorrectionLevel: QrErrorCorrectLevel.M,
+                eyeStyle: const QrEyeStyle(eyeShape: QrEyeShape.square, color: Palette.ink),
+                dataModuleStyle: const QrDataModuleStyle(dataModuleShape: QrDataModuleShape.square, color: Palette.ink),
+                semanticsLabel: 'UPI QR code for $vpa',
+              ),
+            ),
+          ),
+          const SizedBox(height: Space.lg),
+          Center(child: Text(name, style: ctx.text.titleMedium)),
+          Center(child: SelectableText(vpa, style: ctx.text.bodyMedium)),
+          if (amount != null) ...[
+            const SizedBox(height: Space.xs),
+            Center(child: Text(Money.format(amount), style: ctx.text.headlineSmall?.copyWith(fontWeight: FontWeight.w800))),
+          ],
+          if (onReceived != null) ...[
+            const SizedBox(height: Space.lg),
+            PrimaryButton(
+              label: 'They paid · record it',
+              icon: Icons.check_rounded,
+              onPressed: () {
+                Navigator.of(ctx).pop();
+                onReceived();
+              },
+            ),
+          ],
+        ],
+      );
+    },
+  );
+}
+
+/// No UPI ID yet: explain and offer to add one.
+Future<void> askForUpiId(BuildContext context) async {
+  final router = GoRouter.of(context);
+  final ok = await confirmAction(
+    context,
+    title: 'Add your UPI ID first',
+    message: 'Your QR code is made from your UPI ID (like name@okaxis). Add it in Personal info.',
+    confirmLabel: 'Add UPI ID',
+    icon: Icons.qr_code_2_rounded,
+  );
+  if (ok) router.push('/personal-info');
 }
 
 /// Sends an in-app nudge (max once per 24h per person per group).
