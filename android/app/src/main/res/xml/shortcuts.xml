@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Long-press the app icon. Routed through QuickLaunchActivity (see its comment). -->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="add_expense"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_add"
+        android:shortcutShortLabel="@string/shortcut_add_short"
+        android:shortcutLongLabel="@string/shortcut_add_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="splitmate://add"
+            android:targetPackage="com.ak3112511.splitmate"
+            android:targetClass="com.example.split_mate.QuickLaunchActivity" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="scan_bill"
+        android:enabled="true"
+        android:icon="@drawable/ic_shortcut_scan"
+        android:shortcutShortLabel="@string/shortcut_scan_short"
+        android:shortcutLongLabel="@string/shortcut_scan_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="splitmate://scan"
+            android:targetPackage="com.ak3112511.splitmate"
+            android:targetClass="com.example.split_mate.QuickLaunchActivity" />
+    </shortcut>
+</shortcuts>

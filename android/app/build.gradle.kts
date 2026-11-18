@@ -62,6 +62,8 @@ android {
                 logger.warn("WARNING: android/key.properties not found - release build is signed with the DEBUG key.")
                 signingConfig = signingConfigs.getByName("debug")
             }
+            // Extra R8 rules (ML Kit), on top of Flutter's own.
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
         }
     }
 }

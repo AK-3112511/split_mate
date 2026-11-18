@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:padding="4dp">
+
+    <LinearLayout
+        android:id="@+id/widget_add"
+        android:layout_width="0dp"
+        android:layout_height="match_parent"
+        android:layout_weight="1"
+        android:background="@drawable/widget_button_yellow"
+        android:contentDescription="@string/widget_add"
+        android:gravity="center"
+        android:minHeight="48dp"
+        android:orientation="horizontal"
+        android:paddingStart="12dp"
+        android:paddingEnd="15dp"
+        android:paddingBottom="3dp">
+
+        <ImageView
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:importantForAccessibility="no"
+            android:src="@drawable/ic_glyph_add" />
+
+        <!-- Shrinks to fit when the widget is resized narrower. -->
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:autoSizeMaxTextSize="16sp"
+            android:autoSizeMinTextSize="10sp"
+            android:autoSizeStepGranularity="1sp"
+            android:autoSizeTextType="uniform"
+            android:fontFamily="sans-serif-black"
+            android:gravity="center_vertical"
+            android:maxLines="1"
+            android:text="@string/widget_add"
+            android:textColor="@color/brand_ink"
+            android:textSize="16sp" />
+    </LinearLayout>
+
+    <FrameLayout
+        android:id="@+id/widget_scan"
+        android:layout_width="60dp"
+        android:layout_height="match_parent"
+        android:layout_marginStart="8dp"
+        android:background="@drawable/widget_button_mint"
+        android:contentDescription="@string/widget_scan"
+        android:minHeight="48dp"
+        android:paddingEnd="3dp"
+        android:paddingBottom="3dp">
+
+        <ImageView
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:layout_gravity="center"
+            android:importantForAccessibility="no"
+            android:src="@drawable/ic_glyph_scan" />
+    </FrameLayout>
+</LinearLayout>

@@ -216,6 +216,22 @@ Test group **TEST R2** (created by B, A invited) plus a solo **TEST Solo** for a
 - Verified on device (nothing sent or paid): preview card and share sheet with image + caption; WhatsApp opened on "Send to…" with the message; pay page rendered and its button opened Android's UPI app chooser. Test group and ledger entry cleaned up.
 - Version 2.2.0+8.
 
+### Faster adding: shortcuts, widget, category guess, bill scan — ✅ 2026-11-18
+- **Long-press shortcuts** on the app icon: *Add an expense* and *Scan a bill*. Android launches static shortcuts with CLEAR_TASK, which would restart a running app and replay the intro, so they go through a tiny invisible `QuickLaunchActivity` (own task affinity) that forwards `splitmate://add` / `splitmate://scan` to MainActivity.
+- **Home-screen widget** (4×1, resizable): yellow *Add expense* button and a mint scan button, Pop Brutal outlines and shadows (`QuickAddWidget.kt`, `res/layout/widget_quick_add.xml`, preview image for launchers that ignore `previewLayout`).
+- Quick-launch links skip the intro animation and open on top of whatever was open (Close goes back there); the amount keyboard is re-requested once the window has focus (Android ignores autofocus while the app is still coming to the front).
+- **Category guessing** (`categories/domain/category_guesser.dart`): your own history first (same description → same category; a word used twice for one category carries over), then a category's name in the text, then a list of common Indian merchants and words (Uber/Ola/Rapido → Travel, Swiggy/Zomato → Food, Blinkit/Zepto → Groceries, Netflix → Entertainment…), with phrases first ("Uber Eats" → Food). Works with renamed defaults. Shown as an *Auto-picked* pill; tapping a category stops guessing. On both add screens.
+- **Quick picks**: your frequent recent personal expenses as one-tap chips (fills the amount too when it has always been the same). Amount → Next → description → Done saves.
+- **Bill scan** (ML Kit text recognition, on the phone, Latin script): photo or gallery → items, quantities (×4), tax/service charge, discount, round-off and the printed total → Items split with everyone ticked; tap people off items. The photo is kept as the receipt and the shop name fills the description. A card says whether the items add up to the bill's total.
+  - Parser (`bill_scan/domain/bill_parser.dart`) regroups OCR lines into printed rows after undoing the photo's tilt, matches bill labels as whole words ("Vegetable" isn't a table number), ignores GST summaries after the grand total, fixes OCR look-alikes in prices (240.0e, 1OO.OO), and never drops an item with an unreadable price: qty × rate or the subtotal fills it, otherwise it's left blank to type in.
+  - Itemized splits gained **Tax & charges** and **Discount** (`itemsExtra` on the expense, kept on recurring copies), shared in proportion to what each person had. Shown in the expense details.
+- Release builds: R8 keep rules for ML Kit (`android/app/proguard-rules.pro`; without them the first scan crashed inside ML Kit). The release APK is now built for ARM phones only (`--target-platform android-arm,android-arm64`): 71.4 MB instead of 92.9 MB with the x86_64 slice.
+- Tests: 128 pass (new: category guesser, bill parser incl. real ML Kit output from the phone, proportional tax/discount). Analyze clean.
+- **Verified on device** (OPPO CPH2467, release APK): both shortcuts cold and warm (form in ~1.1 s, no intro, Close returns to the previous tab); widget added from the picker, both buttons; "TEST Uber" → Travel auto-picked and saved with Done; group picker for scan; a tilted photo of a GST bill read fully (5 items, ₹128 tax, matches ₹1,408), who-had-what shares ₹781 / ₹627 as calculated by hand, tax line in details, edit reopens with the tax. Test group, expense, guest, widget and photo removed afterwards.
+- Found and fixed on the phone: ML Kit crash under R8; "240.0e" dropping an item; on a cold start from a shortcut the form picked a built-in category id before your profile loaded (would have saved as "Other"); keyboard not opening from a shortcut; widget label cut off at 3 cells.
+- Not verified: a real paper bill photographed with the camera (only a rendered bill photo from the gallery), the resized 4-cell widget label on the home screen, iOS (no shortcuts/widget there).
+- Version 2.3.0+9.
+
 ## Manual end-to-end checklist (Phase 7)
 
 Two test accounts (A, B) on an Android emulator.

@@ -162,9 +162,12 @@ class SplitCalculator {
     return SplitResult.ok(_toRupees(shares), Money.fromPaise(totalPaise));
   }
 
+  /// [extra] is tax / service charge minus any discount for the whole bill
+  /// (may be negative). It's shared in proportion to each person's items.
   static SplitResult itemized({
     required List<SplitItem> items,
     required String payerUid,
+    double extra = 0,
   }) {
     if (items.isEmpty) return SplitResult.invalid('Add at least one item');
     final shares = <String, int>{};
@@ -188,6 +191,28 @@ class SplitCalculator {
       }
       totalPaise += itemPaise;
     }
+
+    final extraPaise = extra.isFinite ? Money.toPaise(extra) : 0;
+    if (extraPaise != 0) {
+      if (totalPaise + extraPaise <= 0) return SplitResult.invalid('The discount is more than the bill');
+      final itemsPaise = totalPaise;
+      var allocated = 0;
+      for (final uid in shares.keys.toList()) {
+        // ~/ truncates toward zero, so a discount never takes more than a share.
+        final part = (extraPaise * shares[uid]!) ~/ itemsPaise;
+        shares[uid] = shares[uid]! + part;
+        allocated += part;
+      }
+      final leftover = extraPaise - allocated;
+      if (leftover != 0) {
+        final receiver = shares.containsKey(payerUid)
+            ? payerUid
+            : (shares.entries.toList()..sort((a, b) => b.value.compareTo(a.value))).first.key;
+        shares[receiver] = shares[receiver]! + leftover;
+      }
+      totalPaise += extraPaise;
+    }
+
     if (Money.fromPaise(totalPaise) > Money.maxAmount) {
       return SplitResult.invalid('Total is too large');
     }
