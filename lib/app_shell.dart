@@ -5,6 +5,7 @@ import 'core/theme/aurora_colors.dart';
 import 'core/utils/haptics.dart';
 import 'features/friends/data/friends_repository.dart';
 import 'features/groups/data/groups_repository.dart';
+import 'core/l10n/strings.dart';
 
 /// Bottom navigation shell. Each tab keeps its own stack & scroll state.
 class AppShell extends ConsumerWidget {
@@ -36,25 +37,25 @@ class AppShell extends ConsumerWidget {
             shell.goBranch(i, initialLocation: i == shell.currentIndex);
           },
           destinations: [
-            const NavigationDestination(
+            NavigationDestination(
               icon: Icon(Icons.space_dashboard_outlined),
               selectedIcon: Icon(Icons.space_dashboard_rounded),
-              label: 'Home',
+              label: context.s.navHome,
             ),
             NavigationDestination(
               icon: badged(Icons.groups_outlined, invites),
               selectedIcon: badged(Icons.groups_rounded, invites),
-              label: 'Groups',
+              label: context.s.navGroups,
             ),
             NavigationDestination(
               icon: badged(Icons.people_outline_rounded, requests),
               selectedIcon: badged(Icons.people_rounded, requests),
-              label: 'Friends',
+              label: context.s.navFriends,
             ),
-            const NavigationDestination(
+            NavigationDestination(
               icon: Icon(Icons.person_outline_rounded),
               selectedIcon: Icon(Icons.person_rounded),
-              label: 'Profile',
+              label: context.s.navProfile,
             ),
           ],
         ),

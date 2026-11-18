@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
 import '../../../../core/domain/split_calculator.dart';
+import '../../../../core/l10n/strings.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/aurora_colors.dart';
 import '../../../../core/theme/tokens.dart';
@@ -69,18 +70,18 @@ class GroupExpenseTile extends ConsumerWidget {
       title = expense.description.isEmpty ? cat.name : expense.description;
       final fx = expense.fx;
       subtitle = fx == null
-          ? '$payer paid ${Money.format(expense.amount)}'
-          : '$payer paid ${Currencies.format(fx.amount, fx.currency)} · ${Money.format(expense.amount)}';
+          ? context.s.namePaid(payer, Money.format(expense.amount))
+          : context.s.namePaid(payer, '${Currencies.format(fx.amount, fx.currency)} · ${Money.format(expense.amount)}');
       final myShare = expense.shareOf(me);
       final lent = expense.payerUid == me ? expense.amount - myShare : 0.0;
       final borrowed = expense.payerUid == me ? 0.0 : myShare;
       final (label, value, color) = lent > 0.004
-          ? ('you lent', lent, c.positive)
+          ? (context.s.youLent, lent, c.positive)
           : borrowed > 0.004
-              ? ('you borrowed', borrowed, c.negative)
+              ? (context.s.youBorrowed, borrowed, c.negative)
               : myShare > 0.004
-                  ? ('your share', myShare, c.textMuted)
-                  : ('not involved', 0.0, c.textMuted);
+                  ? (context.s.yourShare, myShare, c.textMuted)
+                  : (context.s.notInvolved, 0.0, c.textMuted);
       trailing = Column(
         crossAxisAlignment: CrossAxisAlignment.end,
         children: [

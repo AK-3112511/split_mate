@@ -12,6 +12,7 @@ import '../../domain/group_expense_model.dart';
 import '../../domain/group_model.dart';
 import '../widgets/group_expense_widgets.dart';
 import '../widgets/trip_widgets.dart';
+import '../../../../core/l10n/strings.dart';
 
 class ExpensesTab extends ConsumerStatefulWidget {
   final GroupModel group;
@@ -51,8 +52,8 @@ class _ExpensesTabState extends ConsumerState<ExpensesTab> with AutomaticKeepAli
                   SliverToBoxAdapter(
                     child: EmptyState(
                       icon: Icons.receipt_long_rounded,
-                      title: 'No expenses yet',
-                      message: 'Tap "Add expense" — everyone in ${widget.group.name} sees it instantly.',
+                      title: context.s.noExpensesYet,
+                      message: context.s.groupEmptyBody(widget.group.name),
                     ),
                   ),
                 ];
@@ -73,8 +74,8 @@ class _ExpensesTabState extends ConsumerState<ExpensesTab> with AutomaticKeepAli
                     padding: const EdgeInsets.fromLTRB(Space.gutter, Space.md, Space.gutter, Space.xs),
                     child: TextField(
                       onChanged: (v) => setState(() => _query = v),
-                      decoration: const InputDecoration(
-                        hintText: 'Search this group',
+                      decoration: InputDecoration(
+                        hintText: context.s.searchGroup,
                         prefixIcon: Icon(Icons.search_rounded),
                         isDense: true,
                       ),
@@ -82,8 +83,8 @@ class _ExpensesTabState extends ConsumerState<ExpensesTab> with AutomaticKeepAli
                   ),
                 ),
                 if (list.isEmpty)
-                  const SliverToBoxAdapter(
-                    child: EmptyState(icon: Icons.search_off_rounded, title: 'No matches', compact: true),
+                  SliverToBoxAdapter(
+                    child: EmptyState(icon: Icons.search_off_rounded, title: context.s.noMatches, compact: true),
                   ),
                 for (final day in keys) ...[
                   SliverToBoxAdapter(

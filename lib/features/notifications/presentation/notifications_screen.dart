@@ -11,6 +11,7 @@ import '../../../shared_widgets/states.dart';
 import '../../groups/data/groups_repository.dart';
 import '../data/notifications_repository.dart';
 import '../domain/notification_model.dart';
+import '../../../core/l10n/strings.dart';
 
 /// The single notifications inbox (v1 had a second, drifting copy in Groups).
 class NotificationsScreen extends ConsumerWidget {
@@ -26,22 +27,22 @@ class NotificationsScreen extends ConsumerWidget {
     return Scaffold(
       appBar: AppBar(
         leading: BackButton(onPressed: () => context.popOrGo()),
-        title: const Text('Notifications'),
+        title: Text(context.s.notifications),
         actions: [
           if (items.isNotEmpty)
             PopupMenuButton<String>(
-              tooltip: 'More',
+              tooltip: context.s.more,
               onSelected: (v) async {
                 try {
                   if (v == 'read') {
                     await repo.markAllRead(items);
-                    Toast.success('All caught up');
+                    Toast.success(S.current.allCaughtUp);
                   } else {
                     final ok = await confirmAction(
                       context,
-                      title: 'Clear all notifications?',
-                      message: 'This removes them from your inbox.',
-                      confirmLabel: 'Clear all',
+                      title: context.s.clearAllQ,
+                      message: context.s.clearAllBody,
+                      confirmLabel: context.s.clearAll,
                       destructive: true,
                     );
                     if (ok) await repo.clearAll(items);
@@ -51,8 +52,8 @@ class NotificationsScreen extends ConsumerWidget {
                 }
               },
               itemBuilder: (_) => [
-                if (unread > 0) const PopupMenuItem(value: 'read', child: Text('Mark all as read')),
-                const PopupMenuItem(value: 'clear', child: Text('Clear all')),
+                if (unread > 0) PopupMenuItem(value: 'read', child: Text(context.s.markAllRead)),
+                PopupMenuItem(value: 'clear', child: Text(context.s.clearAll)),
               ],
             ),
         ],
@@ -61,11 +62,11 @@ class NotificationsScreen extends ConsumerWidget {
         loading: () => const SkeletonList(),
         error: (e, _) => Center(child: ErrorState(error: e, onRetry: () => ref.invalidate(userNotificationsStreamProvider))),
         data: (list) => list.isEmpty
-            ? const Center(
+            ? Center(
                 child: EmptyState(
                   icon: Icons.notifications_none_rounded,
-                  title: 'You\'re all caught up',
-                  message: 'Expense updates, payments and invites will show up here.',
+                  title: context.s.allCaughtUp,
+                  message: context.s.notifEmptyBody,
                 ),
               )
             : ListView.builder(

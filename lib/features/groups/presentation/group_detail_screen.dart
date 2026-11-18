@@ -30,6 +30,7 @@ import 'tabs/members_tab.dart';
 import 'tabs/stats_tab.dart';
 import 'widgets/group_expense_widgets.dart';
 import 'widgets/trip_widgets.dart';
+import '../../../core/l10n/strings.dart';
 
 String groupShareText(GroupModel g) =>
     'Join "${g.name}" on SplitMate 💸\n\n${groupInviteLink(g.inviteCode ?? '')}\n\n'
@@ -125,7 +126,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> with Sing
               title: inner ? Text(group.name, style: context.text.titleMedium?.copyWith(color: c.onPop)) : null,
               actions: [
                 IconButton(
-                  tooltip: 'Activity',
+                  tooltip: context.s.activity,
                   icon: const Icon(Icons.history_rounded),
                   onPressed: () => _showActivity(context, group),
                 ),
@@ -167,10 +168,10 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> with Sing
                               balances == null
                                   ? '${group.participants.length} members'
                                   : Money.isZero(myNet)
-                                      ? 'You\'re all settled'
+                                      ? context.s.youreAllSettled
                                       : myNet > 0
-                                          ? 'You\'re owed ${Money.format(myNet)}'
-                                          : 'You owe ${Money.format(-myNet)}',
+                                          ? context.s.youAreOwedAmount(Money.format(myNet))
+                                          : context.s.youOweAmount(Money.format(-myNet)),
                               style: context.text.bodyMedium?.copyWith(color: c.onPop, fontWeight: FontWeight.w700),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
@@ -197,11 +198,11 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> with Sing
                     isScrollable: true,
                     tabAlignment: TabAlignment.start,
                     padding: const EdgeInsets.symmetric(horizontal: Space.sm, vertical: Space.xs),
-                    tabs: const [
-                      Tab(text: 'Expenses'),
-                      Tab(text: 'Balances'),
-                      Tab(text: 'Stats'),
-                      Tab(text: 'Members'),
+                    tabs: [
+                      Tab(text: context.s.tabExpenses),
+                      Tab(text: context.s.tabBalances),
+                      Tab(text: context.s.tabStats),
+                      Tab(text: context.s.tabMembers),
                     ],
                   ),
                 ),
@@ -224,7 +225,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> with Sing
           : PopFab(
               onPressed: () => context.push('/groups/${group.groupId}/expense/new'),
               icon: Icons.add_rounded,
-              label: 'Add expense',
+              label: context.s.addExpense,
             ),
     );
   }
@@ -232,7 +233,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> with Sing
   Widget _menu(BuildContext context, GroupModel group, String me, GroupBalances? balances) {
     final isAdmin = group.isAdmin(me);
     return PopupMenuButton<String>(
-      tooltip: 'More',
+      tooltip: context.s.more,
       icon: const Icon(Icons.more_vert_rounded),
       onSelected: (v) async {
         switch (v) {
@@ -255,28 +256,28 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> with Sing
         }
       },
       itemBuilder: (_) => [
-        const PopupMenuItem(value: 'share', child: ListTile(leading: Icon(Icons.share_rounded), title: Text('Share invite'))),
-        const PopupMenuItem(value: 'pdf', child: ListTile(leading: Icon(Icons.picture_as_pdf_rounded), title: Text('Export PDF'))),
-        const PopupMenuItem(value: 'recurring', child: ListTile(leading: Icon(Icons.autorenew_rounded), title: Text('Recurring expenses'))),
+        PopupMenuItem(value: 'share', child: ListTile(leading: Icon(Icons.share_rounded), title: Text(context.s.shareInvite))),
+        PopupMenuItem(value: 'pdf', child: ListTile(leading: Icon(Icons.picture_as_pdf_rounded), title: Text(context.s.exportPdf))),
+        PopupMenuItem(value: 'recurring', child: ListTile(leading: Icon(Icons.autorenew_rounded), title: Text(context.s.recurringExpenses))),
         if (group.isTrip)
-          const PopupMenuItem(value: 'trip-summary', child: ListTile(leading: Icon(Icons.summarize_rounded), title: Text('Trip summary'))),
+          PopupMenuItem(value: 'trip-summary', child: ListTile(leading: Icon(Icons.summarize_rounded), title: Text(context.s.tripSummary))),
         if (isAdmin)
           PopupMenuItem(
             value: 'trip',
             child: ListTile(
               leading: const Icon(Icons.luggage_rounded),
-              title: Text(group.isTrip ? 'Trip dates & currency' : 'Make it a trip'),
+              title: Text(group.isTrip ? context.s.tripSettings : context.s.makeItTrip),
             ),
           ),
         if (isAdmin)
-          const PopupMenuItem(value: 'rename', child: ListTile(leading: Icon(Icons.edit_rounded), title: Text('Rename group'))),
-        const PopupMenuItem(value: 'leave', child: ListTile(leading: Icon(Icons.logout_rounded), title: Text('Leave group'))),
+          PopupMenuItem(value: 'rename', child: ListTile(leading: Icon(Icons.edit_rounded), title: Text(context.s.renameGroup))),
+        PopupMenuItem(value: 'leave', child: ListTile(leading: Icon(Icons.logout_rounded), title: Text(context.s.leaveGroup))),
         if (isAdmin)
           PopupMenuItem(
             value: 'delete',
             child: ListTile(
               leading: Icon(Icons.delete_forever_rounded, color: context.aurora.negative),
-              title: Text('Delete group', style: TextStyle(color: context.aurora.negative)),
+              title: Text(context.s.deleteGroup, style: TextStyle(color: context.aurora.negative)),
             ),
           ),
       ],
@@ -324,7 +325,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> with Sing
       context,
       builder: (ctx) => StatefulBuilder(
         builder: (ctx, set) => SheetBody(
-          title: 'Rename group',
+          title: context.s.renameGroup,
           children: [
             AppTextField(controller: controller, label: 'Group name', maxLength: 40, autofocus: true),
             const SizedBox(height: Space.lg),
@@ -375,7 +376,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> with Sing
       context,
       title: 'Leave ${group.name}?',
       message: warning,
-      confirmLabel: 'Leave group',
+      confirmLabel: context.s.leaveGroup,
       destructive: true,
       icon: Icons.logout_rounded,
     );
@@ -398,7 +399,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> with Sing
       message: open > 0
           ? '$open balance${open == 1 ? ' is' : 's are'} still unsettled. Deleting hides the group and its history for everyone.'
           : 'The group and its history will be hidden for everyone. Personal copies of shares stay in each member\'s ledger.',
-      confirmLabel: 'Delete group',
+      confirmLabel: context.s.deleteGroup,
       destructive: true,
       icon: Icons.delete_forever_rounded,
     );

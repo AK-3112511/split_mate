@@ -19,6 +19,7 @@ import '../data/groups_repository.dart';
 import '../domain/group_invite_model.dart';
 import '../domain/group_model.dart';
 import 'widgets/group_sheets.dart';
+import '../../../core/l10n/strings.dart';
 
 class GroupListScreen extends ConsumerWidget {
   const GroupListScreen({super.key});
@@ -40,10 +41,10 @@ class GroupListScreen extends ConsumerWidget {
                   padding: const EdgeInsets.fromLTRB(Space.gutter, Space.md, Space.gutter, Space.lg),
                   child: Row(
                     children: [
-                      Expanded(child: Text('Groups', style: context.text.headlineLarge)),
+                      Expanded(child: Text(context.s.groups, style: context.text.headlineLarge)),
                       TonalIconButton(
                         icon: Icons.qr_code_2_rounded,
-                        tooltip: 'Join with a code',
+                        tooltip: context.s.joinWithCode,
                         onPressed: () => showJoinByCodeSheet(context),
                       ),
                     ],
@@ -52,7 +53,7 @@ class GroupListScreen extends ConsumerWidget {
               ),
               SliverToBoxAdapter(child: const _OverviewCard().entrance(context)),
               if (invites.isNotEmpty) ...[
-                const SliverToBoxAdapter(child: SectionHeader('Invitations')),
+                SliverToBoxAdapter(child: SectionHeader(context.s.invitations)),
                 SliverList.builder(
                   itemCount: invites.length,
                   itemBuilder: (_, i) => _InviteCard(invite: invites[i]).entrance(context, index: i),
@@ -68,23 +69,23 @@ class GroupListScreen extends ConsumerWidget {
                         SliverToBoxAdapter(
                           child: Column(
                             children: [
-                              const EmptyState(
+                              EmptyState(
                                 icon: Icons.groups_rounded,
-                                title: 'No groups yet',
-                                message: 'Create one for your flat, a trip or office lunches — or join with a code.',
+                                title: context.s.noGroupsYet,
+                                message: context.s.noGroupsBody,
                               ),
                               Padding(
                                 padding: const EdgeInsets.symmetric(horizontal: Space.xxl),
                                 child: Column(
                                   children: [
                                     PrimaryButton(
-                                      label: 'Create a group',
+                                      label: context.s.createGroup,
                                       icon: Icons.add_rounded,
                                       onPressed: () => showCreateGroupSheet(context),
                                     ),
                                     const SizedBox(height: Space.sm),
                                     SecondaryButton(
-                                      label: 'Join with a code',
+                                      label: context.s.joinWithCode,
                                       icon: Icons.qr_code_2_rounded,
                                       onPressed: () => showJoinByCodeSheet(context),
                                     ),
@@ -96,7 +97,7 @@ class GroupListScreen extends ConsumerWidget {
                         ),
                       ]
                     : [
-                        SliverToBoxAdapter(child: SectionHeader('Your groups', trailing: Text('${groups.length}', style: context.text.labelMedium))),
+                        SliverToBoxAdapter(child: SectionHeader(context.s.yourGroups, trailing: Text('${groups.length}', style: context.text.labelMedium))),
                         SliverList.builder(
                           itemCount: groups.length,
                           itemBuilder: (_, i) => _GroupCard(group: groups[i]).entrance(context, index: i),
@@ -111,7 +112,7 @@ class GroupListScreen extends ConsumerWidget {
       floatingActionButton: PopFab(
         onPressed: () => showCreateGroupSheet(context),
         icon: Icons.group_add_rounded,
-        label: 'New group',
+        label: context.s.newGroup,
       ),
     );
   }
@@ -138,8 +139,8 @@ class _OverviewCard extends ConsumerWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('All settled up', style: context.text.titleLarge?.copyWith(color: c.onPop)),
-                    Text('No one owes anyone. Nice.',
+                    Text(context.s.allSettledUp, style: context.text.titleLarge?.copyWith(color: c.onPop)),
+                    Text(context.s.noOneOwes,
                         style: context.text.bodyMedium?.copyWith(color: c.onPop, fontWeight: FontWeight.w600)),
                   ],
                 ),
@@ -153,9 +154,9 @@ class _OverviewCard extends ConsumerWidget {
       padding: const EdgeInsets.symmetric(horizontal: Space.gutter),
       child: Row(
         children: [
-          Expanded(child: _stat(context, 'You\'re owed', b.owedToMe, Icons.south_west_rounded, c.positiveFill)),
+          Expanded(child: _stat(context, context.s.youAreOwed, b.owedToMe, Icons.south_west_rounded, c.positiveFill)),
           const SizedBox(width: Space.md),
-          Expanded(child: _stat(context, 'You owe', b.iOwe, Icons.north_east_rounded, c.negativeFill)),
+          Expanded(child: _stat(context, context.s.youOwe, b.iOwe, Icons.north_east_rounded, c.negativeFill)),
         ],
       ),
     );
@@ -203,11 +204,11 @@ class _GroupCard extends ConsumerWidget {
     if (balance == null) {
       pill = const SizedBox(width: 60, child: Skeleton(child: SkeletonBox(height: 20)));
     } else if (Money.isZero(balance)) {
-      pill = const Pill('Settled', tone: PillTone.neutral, icon: Icons.check_rounded);
+      pill = Pill(context.s.settled, tone: PillTone.neutral, icon: Icons.check_rounded);
     } else if (balance > 0) {
-      pill = Pill('Owed ${Money.format(balance)}', tone: PillTone.positive);
+      pill = Pill(context.s.owedAmount(Money.format(balance)), tone: PillTone.positive);
     } else {
-      pill = Pill('You owe ${Money.format(-balance)}', tone: PillTone.negative);
+      pill = Pill(context.s.youOweAmount(Money.format(-balance)), tone: PillTone.negative);
     }
     return Padding(
       padding: const EdgeInsets.fromLTRB(Space.gutter, 0, Space.gutter, Space.sm),
@@ -319,9 +320,9 @@ class _InviteCardState extends ConsumerState<_InviteCard> {
             const SizedBox(height: Space.md),
             Row(
               children: [
-                Expanded(child: SecondaryButton(label: 'Decline', onPressed: _busy ? null : () => _act(false))),
+                Expanded(child: SecondaryButton(label: context.s.decline, onPressed: _busy ? null : () => _act(false))),
                 const SizedBox(width: Space.sm),
-                Expanded(child: PrimaryButton(label: 'Join', loading: _busy, onPressed: () => _act(true))),
+                Expanded(child: PrimaryButton(label: context.s.join, loading: _busy, onPressed: () => _act(true))),
               ],
             ),
           ],

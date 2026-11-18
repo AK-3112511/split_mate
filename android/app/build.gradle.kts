@@ -15,6 +15,7 @@ plugins {
     id("com.android.application")
     // START: FlutterFire Configuration
     id("com.google.gms.google-services")
+    id("com.google.firebase.crashlytics")
     // END: FlutterFire Configuration
     id("kotlin-android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -76,4 +77,9 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // AppCompat themes (see res/values/styles.xml) for the app-lock prompt.
+    implementation("androidx.appcompat:appcompat:1.7.1")
 }

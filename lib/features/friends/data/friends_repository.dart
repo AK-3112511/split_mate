@@ -10,6 +10,7 @@ import '../../groups/domain/guest.dart';
 import '../../notifications/data/notifications_repository.dart';
 import '../../notifications/domain/notification_model.dart';
 import '../domain/friend_model.dart';
+import '../../../core/l10n/strings.dart';
 
 /// Every friendship edge of the current user (accepted + pending both ways).
 final friendsStreamProvider = StreamProvider<List<FriendModel>>((ref) {
@@ -35,7 +36,8 @@ final incomingFriendRequestCountProvider = Provider<int>((ref) {
 /// How a person is shown everywhere: "You", my nickname for them, or their name.
 final memberNameProvider = Provider.autoDispose.family<String, String>((ref, uid) {
   final me = ref.watch(currentUidProvider);
-  if (uid == me) return 'You';
+  // Re-read when the language changes so "You" follows it.
+  if (uid == me) return S(ref.watch(appLanguageProvider)).you;
   if (isGuestId(uid)) return ref.watch(guestNamesProvider)[uid] ?? 'Guest';
   final friends = ref.watch(friendsStreamProvider).valueOrNull ?? const [];
   for (final f in friends) {

@@ -13,3 +13,9 @@
 -keep class com.google.android.gms.vision.** { *; }
 -keep class com.google_mlkit_commons.** { *; }
 -keep class com.google_mlkit_text_recognition.** { *; }
+
+# Firebase finds its components by reflection (no-arg constructors). Shrunk,
+# Crashlytics failed to start ("Could not instantiate CrashlyticsRegistrar").
+-keep class * implements com.google.firebase.components.ComponentRegistrar { <init>(); }
+-keep class com.google.firebase.crashlytics.** { *; }
+-keep class com.google.firebase.sessions.** { *; }
