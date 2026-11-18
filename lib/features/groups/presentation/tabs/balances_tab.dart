@@ -21,6 +21,7 @@ import '../../domain/group_model.dart';
 import '../../domain/guest.dart';
 import '../widgets/settle_up.dart';
 import '../widgets/share_balances.dart';
+import '../../../../core/l10n/strings.dart';
 
 class BalancesTab extends ConsumerStatefulWidget {
   final GroupModel group;
@@ -79,7 +80,7 @@ class _BalancesTabState extends ConsumerState<BalancesTab> with AutomaticKeepAli
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  Money.isZero(myNet) ? 'You\'re all settled' : (myNet > 0 ? 'Overall, you\'re owed' : 'Overall, you owe'),
+                                  Money.isZero(myNet) ? context.s.youreAllSettled : (myNet > 0 ? context.s.overallOwed : context.s.overallOwe),
                                   style: context.text.labelMedium,
                                 ),
                                 if (!Money.isZero(myNet))
@@ -97,9 +98,9 @@ class _BalancesTabState extends ConsumerState<BalancesTab> with AutomaticKeepAli
                     padding: const EdgeInsets.fromLTRB(Space.gutter, Space.lg, Space.gutter, Space.xs),
                     child: Row(
                       children: [
-                        Expanded(child: Text(_simplified ? 'Fewest payments' : 'Who owes whom', style: context.text.titleMedium)),
+                        Expanded(child: Text(_simplified ? context.s.fewestPayments : context.s.whoOwesWhom, style: context.text.titleMedium)),
                         IconButton(
-                          tooltip: 'Share balances',
+                          tooltip: context.s.shareBalances,
                           icon: const Icon(Icons.ios_share_rounded),
                           onPressed: () => showShareBalancesSheet(
                             context,
@@ -109,7 +110,7 @@ class _BalancesTabState extends ConsumerState<BalancesTab> with AutomaticKeepAli
                             expenses: expenses,
                           ),
                         ),
-                        Text('Simplify', style: context.text.labelMedium),
+                        Text(context.s.simplify, style: context.text.labelMedium),
                         Switch(value: _simplified, onChanged: (v) => setState(() => _simplified = v)),
                       ],
                     ),
@@ -120,18 +121,18 @@ class _BalancesTabState extends ConsumerState<BalancesTab> with AutomaticKeepAli
                     padding: const EdgeInsets.symmetric(horizontal: Space.gutter),
                     child: Text(
                       _simplified
-                          ? 'Suggests the fewest transfers to clear the whole group. People may pay someone they didn\'t share with directly.'
-                          : 'Direct balances from expenses you actually shared. Settling these keeps everyone\'s personal ledger accurate.',
+                          ? context.s.simplifyHelp
+                          : context.s.directHelp,
                       style: context.text.bodySmall,
                     ),
                   ),
                 ),
                 if (debts.isEmpty)
-                  const SliverToBoxAdapter(
+                  SliverToBoxAdapter(
                     child: EmptyState(
                       icon: Icons.celebration_rounded,
-                      title: 'All settled up 🎉',
-                      message: 'Nobody owes anybody in this group.',
+                      title: context.s.allSettledUpParty,
+                      message: context.s.nobodyOwes,
                     ),
                   )
                 else ...[
@@ -141,7 +142,7 @@ class _BalancesTabState extends ConsumerState<BalancesTab> with AutomaticKeepAli
                         .entrance(context, index: i),
                   ),
                   if (others.isNotEmpty)
-                    const SliverToBoxAdapter(child: SectionHeader('Between others')),
+                    SliverToBoxAdapter(child: SectionHeader(context.s.betweenOthers)),
                   SliverList.builder(
                     itemCount: others.length,
                     itemBuilder: (_, i) => DebtCard(group: widget.group, debt: others[i], me: me, expenses: expenses),
@@ -189,10 +190,10 @@ class DebtCard extends ConsumerWidget {
     final myUpi = owedToMe ? ref.watch(userProfileProvider(me)).valueOrNull?.upiId : null;
 
     final sentence = iOwe
-        ? 'You owe $to'
+        ? context.s.youOweName(to)
         : owedToMe
-            ? '$from owes you'
-            : '$from owes $to';
+            ? context.s.nameOwesYou(from)
+            : context.s.nameOwesName(from, to);
 
     return Padding(
       padding: padding,
@@ -234,14 +235,14 @@ class DebtCard extends ConsumerWidget {
                         onPressed: () => payViaUpi(context, ref,
                             group: group, debt: debt, expenses: expenses, vpa: creditorUpi),
                         icon: const Icon(Icons.bolt_rounded, size: 18),
-                        label: const FittedBox(fit: BoxFit.scaleDown, child: Text('Pay via UPI', maxLines: 1)),
+                        label: FittedBox(fit: BoxFit.scaleDown, child: Text(context.s.payViaUpi, maxLines: 1)),
                       ),
                     ),
                     const SizedBox(width: Space.sm),
                   ],
                   if (owedToMe) ...[
                     IconButton.outlined(
-                      tooltip: 'Show my UPI QR',
+                      tooltip: context.s.showMyQr,
                       icon: const Icon(Icons.qr_code_2_rounded),
                       onPressed: () {
                         if (myUpi == null || myUpi.isEmpty) {
@@ -269,7 +270,7 @@ class DebtCard extends ConsumerWidget {
                             )
                           : OutlinedButton(
                               onPressed: () => _chooseReminder(context, ref, canRemind),
-                              child: const FittedBox(fit: BoxFit.scaleDown, child: Text('Remind', maxLines: 1)),
+                              child: FittedBox(fit: BoxFit.scaleDown, child: Text(context.s.remind, maxLines: 1)),
                             ),
                     ),
                     const SizedBox(width: Space.sm),
@@ -278,13 +279,13 @@ class DebtCard extends ConsumerWidget {
                     child: (iOwe && (creditorUpi?.isNotEmpty ?? false))
                         ? OutlinedButton(
                             onPressed: () => showRecordPaymentSheet(context, group: group, debt: debt, expenses: expenses),
-                            child: const Text('Record'),
+                            child: Text(context.s.record),
                           )
                         : FilledButton(
                             onPressed: () => showRecordPaymentSheet(context, group: group, debt: debt, expenses: expenses),
                             child: FittedBox(
                               fit: BoxFit.scaleDown,
-                              child: Text(owedToMe ? 'Received' : 'Record', maxLines: 1),
+                              child: Text(owedToMe ? context.s.received : context.s.record, maxLines: 1),
                             ),
                           ),
                   ),

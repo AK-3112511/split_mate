@@ -26,6 +26,8 @@ import '../../personal_expenses/presentation/expense_actions.dart';
 import '../../personal_expenses/presentation/expense_tile.dart';
 import '../domain/home_stats.dart';
 import 'widgets/charts.dart';
+import 'widgets/get_started_card.dart';
+import '../../../core/l10n/strings.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -48,10 +50,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
   String _greeting() {
     final h = DateTime.now().hour;
-    if (h < 5) return 'Up late';
-    if (h < 12) return 'Good morning';
-    if (h < 17) return 'Good afternoon';
-    return 'Good evening';
+    if (h < 5) return context.s.greetLate;
+    if (h < 12) return context.s.greetMorning;
+    if (h < 17) return context.s.greetAfternoon;
+    return context.s.greetEvening;
   }
 
   Future<void> _pickCustom() async {
@@ -63,7 +65,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       initialDateRange: _from != null && _to != null
           ? DateTimeRange(start: _from!, end: _to!)
           : DateTimeRange(start: now.subtract(const Duration(days: 30)), end: now),
-      helpText: 'Choose dates',
+      helpText: context.s.chooseDates,
     );
     if (picked == null) return;
     setState(() {
@@ -141,13 +143,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     if (all.isEmpty) {
       return [
-        SliverToBoxAdapter(child: _HeroCard(expenses: visible).entrance(context)),
+        const SliverToBoxAdapter(child: GetStartedCard()),
+      SliverToBoxAdapter(child: _HeroCard(expenses: visible).entrance(context)),
         SliverToBoxAdapter(
           child: EmptyState(
             icon: Icons.receipt_long_rounded,
-            title: 'Start tracking your spending',
-            message: 'Add your first expense — charts, budgets and trends appear here as you go.',
-            actionLabel: 'Add expense',
+            title: context.s.startTracking,
+            message: context.s.startTrackingBody,
+            actionLabel: context.s.addExpense,
             actionIcon: Icons.add_rounded,
             onAction: () => context.push('/expense/new'),
           ),
@@ -156,6 +159,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     }
 
     return [
+      const SliverToBoxAdapter(child: GetStartedCard()),
       SliverToBoxAdapter(child: _HeroCard(expenses: visible).entrance(context)),
       if (showRecap)
         SliverToBoxAdapter(
@@ -206,7 +210,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                           key: const ValueKey('empty'),
                           padding: const EdgeInsets.symmetric(vertical: Space.lg),
                           child: Center(
-                            child: Text('Nothing spent in this period', style: context.text.bodyMedium?.copyWith(color: context.aurora.textMuted)),
+                            child: Text(context.s.nothingThisPeriod, style: context.text.bodyMedium?.copyWith(color: context.aurora.textMuted)),
                           ),
                         )
                       : _donut
@@ -230,8 +234,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ),
       SliverToBoxAdapter(
         child: SectionHeader(
-          'Trends',
-          trailing: Text('Last 6 months', style: context.text.labelMedium),
+          context.s.trends,
+          trailing: Text(context.s.last6Months, style: context.text.labelMedium),
           padding: const EdgeInsets.fromLTRB(Space.gutter, Space.xl, Space.gutter, Space.xs),
         ),
       ),
@@ -250,8 +254,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
       ),
       SliverToBoxAdapter(
         child: SectionHeader(
-          _categoryId == null ? 'Expenses' : 'Expenses · ${cats.firstWhere((c) => c.id == _categoryId, orElse: () => CategoryModel.others).name}',
-          actionLabel: inRange.isEmpty ? null : 'Search',
+          _categoryId == null ? context.s.expenses : '${context.s.expenses} · ${cats.firstWhere((c) => c.id == _categoryId, orElse: () => CategoryModel.others).name}',
+          actionLabel: inRange.isEmpty ? null : context.s.search,
           onAction: () => context.push('/search'),
         ),
       ),
@@ -261,12 +265,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             compact: true,
             icon: Icons.event_busy_rounded,
             title: switch (range.kind) {
-              RangeKind.all => 'No expenses yet',
-              RangeKind.today => 'No expenses today',
+              RangeKind.all => context.s.noExpensesYet,
+              RangeKind.today => context.s.noExpensesToday,
               _ => 'No expenses in ${range.label}',
             },
-            message: 'Try another range or add one now.',
-            actionLabel: 'Add expense',
+            message: context.s.tryAnotherRange,
+            actionLabel: context.s.addExpense,
             onAction: () => context.push('/expense/new'),
           ),
         )
@@ -278,12 +282,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget _filters(BuildContext context, List<CategoryModel> cats) {
     final c = context.aurora;
     final chips = <Widget>[
-      ChoiceChipX(label: 'All time', selected: _kind == RangeKind.all, onTap: () => setState(() => _kind = RangeKind.all)),
-      ChoiceChipX(label: 'Today', selected: _kind == RangeKind.today, onTap: () => setState(() => _kind = RangeKind.today)),
-      ChoiceChipX(label: 'This week', selected: _kind == RangeKind.week, onTap: () => setState(() => _kind = RangeKind.week)),
-      ChoiceChipX(label: 'This month', selected: _kind == RangeKind.month, onTap: () => setState(() => _kind = RangeKind.month)),
+      ChoiceChipX(label: context.s.rangeAllTime, selected: _kind == RangeKind.all, onTap: () => setState(() => _kind = RangeKind.all)),
+      ChoiceChipX(label: context.s.today, selected: _kind == RangeKind.today, onTap: () => setState(() => _kind = RangeKind.today)),
+      ChoiceChipX(label: context.s.rangeWeek, selected: _kind == RangeKind.week, onTap: () => setState(() => _kind = RangeKind.week)),
+      ChoiceChipX(label: context.s.rangeMonth, selected: _kind == RangeKind.month, onTap: () => setState(() => _kind = RangeKind.month)),
       ChoiceChipX(
-        label: _kind == RangeKind.custom ? _range.label : 'Custom',
+        label: _kind == RangeKind.custom ? _range.label : context.s.rangeCustom,
         icon: Icons.date_range_rounded,
         selected: _kind == RangeKind.custom,
         onTap: _pickCustom,
@@ -309,7 +313,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
             padding: const EdgeInsets.symmetric(horizontal: Space.gutter),
             scrollDirection: Axis.horizontal,
             children: [
-              ChoiceChipX(label: 'All', selected: _categoryId == null, onTap: () => setState(() => _categoryId = null)),
+              ChoiceChipX(label: context.s.allCategories, selected: _categoryId == null, onTap: () => setState(() => _categoryId = null)),
               for (final cat in cats) ...[
                 const SizedBox(width: Space.xs),
                 ChoiceChipX(
@@ -323,7 +327,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               const SizedBox(width: Space.xs),
               ActionChip(
                 avatar: Icon(Icons.tune_rounded, size: 16, color: c.textMuted),
-                label: const Text('Manage'),
+                label: Text(context.s.manage),
                 onPressed: () => context.push('/categories'),
               ),
             ],
@@ -408,11 +412,11 @@ class _Header extends ConsumerWidget {
               ],
             ),
           ),
-          TonalIconButton(icon: Icons.search_rounded, tooltip: 'Search', onPressed: () => context.push('/search')),
+          TonalIconButton(icon: Icons.search_rounded, tooltip: context.s.search, onPressed: () => context.push('/search')),
           const SizedBox(width: Space.xs),
           TonalIconButton(
             icon: Icons.notifications_none_rounded,
-            tooltip: 'Notifications',
+            tooltip: context.s.notifications,
             badge: unread,
             onPressed: () => context.push('/notifications'),
           ),
@@ -470,7 +474,7 @@ class _HeroCard extends ConsumerWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('SPENT IN ${Dates.monthName(now).toUpperCase()}',
+                Text(context.s.spentIn(Dates.monthName(now).toUpperCase()),
                     style: context.text.labelSmall?.copyWith(color: c.onPop, letterSpacing: 1.4)),
                 const SizedBox(height: Space.xxs),
                 FittedBox(
@@ -485,7 +489,7 @@ class _HeroCard extends ConsumerWidget {
                 if (trend != null) ...[
                   const SizedBox(height: Space.xs),
                   Pill(
-                    '${trend > 0 ? '+' : '-'}${(trend.abs() * 100).round()}% vs last month',
+                    context.s.vsLastMonth('${trend > 0 ? '+' : '-'}${(trend.abs() * 100).round()}%'),
                     tone: trend > 0 ? PillTone.negative : PillTone.positive,
                     icon: trend > 0 ? Icons.trending_up_rounded : Icons.trending_down_rounded,
                   ),
@@ -496,9 +500,9 @@ class _HeroCard extends ConsumerWidget {
           const SizedBox(height: Space.md),
           Row(
             children: [
-              stat('You\'re owed', balance.owedToMe, Icons.south_west_rounded, c.positiveFill),
+              stat(context.s.youAreOwed, balance.owedToMe, Icons.south_west_rounded, c.positiveFill),
               const SizedBox(width: Space.md),
-              stat('You owe', balance.iOwe, Icons.north_east_rounded, c.negativeFill),
+              stat(context.s.youOwe, balance.iOwe, Icons.north_east_rounded, c.negativeFill),
             ],
           ),
         ],
@@ -534,8 +538,8 @@ class _RecapCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Your ${Dates.monthName(month)} recap is ready', style: context.text.titleSmall),
-                Text('See where your money went ✨', style: context.text.bodySmall),
+                Text(context.s.recapReady(Dates.monthName(month)), style: context.text.titleSmall),
+                Text(context.s.recapBody, style: context.text.bodySmall),
               ],
             ),
           ),
@@ -567,8 +571,8 @@ class _BudgetsStrip extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Set a monthly budget', style: context.text.titleSmall),
-                    Text('Get a nudge at 80% and when you go over', style: context.text.bodySmall),
+                    Text(context.s.setBudget, style: context.text.titleSmall),
+                    Text(context.s.setBudgetBody, style: context.text.bodySmall),
                   ],
                 ),
               ),
@@ -581,7 +585,7 @@ class _BudgetsStrip extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SectionHeader('Budgets', actionLabel: 'Edit', onAction: () => context.push('/categories')),
+        SectionHeader(context.s.budgets, actionLabel: context.s.edit, onAction: () => context.push('/categories')),
         SizedBox(
           height: 150,
           child: ListView.separated(
@@ -633,7 +637,7 @@ class _AddFab extends StatelessWidget {
       color: c.cta,
       borderRadius: Radii.tile,
       onTap: onTap,
-      semanticLabel: 'Add expense',
+      semanticLabel: context.s.addExpense,
       padding: const EdgeInsets.symmetric(horizontal: Space.lg),
       child: SizedBox(
         height: 54,
@@ -642,7 +646,7 @@ class _AddFab extends StatelessWidget {
           children: [
             Icon(Icons.add_rounded, color: c.onPop, size: 26),
             const SizedBox(width: Space.xs),
-            Text('Add expense', style: context.text.labelLarge?.copyWith(color: c.onPop, fontSize: 16)),
+            Text(context.s.addExpense, style: context.text.labelLarge?.copyWith(color: c.onPop, fontSize: 16)),
           ],
         ),
       ),

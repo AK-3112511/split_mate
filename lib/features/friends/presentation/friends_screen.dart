@@ -24,6 +24,7 @@ import '../../notifications/data/notifications_repository.dart';
 import '../../notifications/domain/notification_model.dart';
 import '../data/friends_repository.dart';
 import '../domain/friend_model.dart';
+import '../../../core/l10n/strings.dart';
 
 String friendShareText(String name, String code) =>
     'Add me on SplitMate 💸\nMy friend code: $code\n\nOpen SplitMate → Friends → Add friend → enter $code';
@@ -56,10 +57,10 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
                   padding: const EdgeInsets.fromLTRB(Space.gutter, Space.md, Space.gutter, Space.lg),
                   child: Row(
                     children: [
-                      Expanded(child: Text('Friends', style: context.text.headlineLarge)),
+                      Expanded(child: Text(context.s.friends, style: context.text.headlineLarge)),
                       TonalIconButton(
                         icon: Icons.person_add_alt_1_rounded,
-                        tooltip: 'Add friend',
+                        tooltip: context.s.addFriend,
                         onPressed: () => showAddFriendSheet(context),
                       ),
                     ],
@@ -74,14 +75,14 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text('YOUR FRIEND CODE', style: context.text.labelSmall?.copyWith(color: context.aurora.onPop, letterSpacing: 1.4)),
+                        Text(context.s.yourFriendCode, style: context.text.labelSmall?.copyWith(color: context.aurora.onPop, letterSpacing: 1.4)),
                         const SizedBox(height: 2),
-                        Text('Share it so friends can add you',
+                        Text(context.s.shareCodeHint,
                             style: context.text.bodyMedium?.copyWith(color: context.aurora.onPop, fontWeight: FontWeight.w600)),
                         const SizedBox(height: Space.md),
                         CodeChip(
                           code: profile?.appCode,
-                          label: 'Friend code',
+                          label: context.s.friendCode,
                           onGradient: true,
                           shareText: friendShareText(profile?.displayName ?? '', profile?.appCode ?? ''),
                         ),
@@ -103,7 +104,7 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
                   }
                   return [
                     if (incoming.isNotEmpty) ...[
-                      SliverToBoxAdapter(child: SectionHeader('Requests', trailing: Pill('${incoming.length} new', tone: PillTone.primary))),
+                      SliverToBoxAdapter(child: SectionHeader(context.s.requests, trailing: Pill('${incoming.length} new', tone: PillTone.primary))),
                       SliverList.builder(
                         itemCount: incoming.length,
                         itemBuilder: (_, i) => _RequestCard(edge: incoming[i]).entrance(context, index: i),
@@ -111,7 +112,7 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
                     ],
                     SliverToBoxAdapter(
                       child: SectionHeader(
-                        'Your friends',
+                        context.s.yourFriends,
                         trailing: Text('${edges.where((f) => f.isAccepted).length}', style: context.text.labelMedium),
                       ),
                     ),
@@ -121,8 +122,8 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
                           padding: const EdgeInsets.fromLTRB(Space.gutter, 0, Space.gutter, Space.xs),
                           child: TextField(
                             onChanged: (v) => setState(() => _query = v.trim()),
-                            decoration: const InputDecoration(
-                              hintText: 'Search friends',
+                            decoration: InputDecoration(
+                              hintText: context.s.searchFriends,
                               prefixIcon: Icon(Icons.search_rounded),
                               isDense: true,
                             ),
@@ -133,9 +134,9 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
                       SliverToBoxAdapter(
                         child: EmptyState(
                           icon: Icons.people_alt_rounded,
-                          title: _query.isEmpty ? 'No friends yet' : 'No matches',
-                          message: _query.isEmpty ? 'Add friends with their code to split expenses together.' : null,
-                          actionLabel: _query.isEmpty ? 'Add a friend' : null,
+                          title: _query.isEmpty ? context.s.noFriendsYet : context.s.noMatches,
+                          message: _query.isEmpty ? context.s.noFriendsBody : null,
+                          actionLabel: _query.isEmpty ? context.s.addAFriend : null,
                           actionIcon: Icons.person_add_alt_1_rounded,
                           onAction: _query.isEmpty ? () => showAddFriendSheet(context) : null,
                         ),
@@ -146,7 +147,7 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
                         itemBuilder: (_, i) => _FriendRow(edge: friends[i]).entrance(context, index: i),
                       ),
                     if (outgoing.isNotEmpty) ...[
-                      const SliverToBoxAdapter(child: SectionHeader('Sent requests')),
+                      SliverToBoxAdapter(child: SectionHeader(context.s.sentRequests)),
                       SliverList.builder(
                         itemCount: outgoing.length,
                         itemBuilder: (_, i) => _OutgoingRow(edge: outgoing[i]),
@@ -194,12 +195,12 @@ class _FriendRow extends ConsumerWidget {
               ),
             ),
             if (Money.isZero(balance))
-              Text('settled', style: context.text.labelMedium)
+              Text(context.s.settledLower, style: context.text.labelMedium)
             else
               Column(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: [
-                  Text(balance > 0 ? 'owes you' : 'you owe',
+                  Text(balance > 0 ? context.s.owesYouLower : context.s.youOweLower,
                       style: context.text.labelSmall?.copyWith(color: c.amountColor(balance), letterSpacing: 0)),
                   AmountText(balance, absolute: true, colored: true, style: context.text.titleSmall),
                 ],
@@ -269,9 +270,9 @@ class _RequestCardState extends ConsumerState<_RequestCard> {
             if (_busy)
               const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(strokeWidth: 2))
             else ...[
-              IconButton.outlined(tooltip: 'Decline', onPressed: () => _act(false), icon: const Icon(Icons.close_rounded)),
+              IconButton.outlined(tooltip: context.s.decline, onPressed: () => _act(false), icon: const Icon(Icons.close_rounded)),
               const SizedBox(width: Space.xs),
-              IconButton.filled(tooltip: 'Accept', onPressed: () => _act(true), icon: const Icon(Icons.check_rounded)),
+              IconButton.filled(tooltip: context.s.accept, onPressed: () => _act(true), icon: const Icon(Icons.check_rounded)),
             ],
           ],
         ),
@@ -290,7 +291,7 @@ class _OutgoingRow extends ConsumerWidget {
       contentPadding: const EdgeInsets.symmetric(horizontal: Space.gutter),
       leading: UserAvatar(uid: edge.uid, size: 40),
       title: Text(ref.watch(realNameProvider(edge.uid))),
-      subtitle: const Text('Waiting for them to accept'),
+      subtitle: Text(context.s.waitingAccept),
       trailing: TextButton(
         onPressed: () async {
           try {
@@ -363,7 +364,7 @@ class _AddFriendState extends ConsumerState<_AddFriend> {
   Widget build(BuildContext context) {
     final c = context.aurora;
     return SheetBody(
-      title: 'Add a friend',
+      title: context.s.addAFriend,
       subtitle: 'Ask for their friend code — it\'s on their Friends tab.',
       children: [
         TextField(
@@ -386,7 +387,7 @@ class _AddFriendState extends ConsumerState<_AddFriend> {
           ),
         ),
         const SizedBox(height: Space.lg),
-        PrimaryButton(label: 'Send request', icon: Icons.send_rounded, loading: _busy, onPressed: _send),
+        PrimaryButton(label: context.s.sendRequest, icon: Icons.send_rounded, loading: _busy, onPressed: _send),
       ],
     );
   }

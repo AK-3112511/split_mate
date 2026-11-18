@@ -2,7 +2,9 @@ import 'dart:async';
 import 'package:app_links/app_links.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:material_ui/material_ui.dart';
+import 'core/l10n/strings.dart';
 import 'core/router/app_router.dart';
+import 'core/security/app_lock.dart';
 import 'core/session/bootstrap.dart';
 import 'core/theme/app_theme.dart';
 import 'core/theme/theme_mode_provider.dart';
@@ -81,6 +83,8 @@ class _SplitMateAppState extends ConsumerState<SplitMateApp> {
   Widget build(BuildContext context) {
     ref.watch(sessionBootstrapProvider);
     final router = ref.watch(routerProvider);
+    final strings = S(ref.watch(appLanguageProvider));
+    S.current = strings;
     return MaterialApp.router(
       title: 'SplitMate',
       debugShowCheckedModeBanner: false,
@@ -93,7 +97,9 @@ class _SplitMateAppState extends ConsumerState<SplitMateApp> {
       // fl_chart, confetti…) that still import legacy package:flutter/material.dart.
       // Remove once those packages migrate to package:material_ui.
       // ignore: deprecated_member_use
-      builder: (context, child) => MaterialUiCompatibilityBridge(child: child!),
+      builder: (context, child) => MaterialUiCompatibilityBridge(
+        child: StringsScope(strings: strings, child: AppLockGate(child: child!)),
+      ),
     );
   }
 }

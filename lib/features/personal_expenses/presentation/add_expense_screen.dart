@@ -31,6 +31,7 @@ import '../../home/domain/home_stats.dart';
 import '../../receipts/data/receipts_repository.dart';
 import '../data/expense_repository.dart';
 import '../domain/expense_model.dart';
+import '../../../core/l10n/strings.dart';
 
 /// Add a personal expense / recurring template, or edit one ([editId]).
 class AddExpenseScreen extends ConsumerStatefulWidget {
@@ -128,11 +129,11 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
     showAppSheet<void>(
       context,
       builder: (ctx) => SheetBody(
-        title: 'Add a receipt',
+        title: context.s.addReceipt,
         children: [
           ListTile(
             leading: const IconBadge(Icons.photo_camera_rounded, size: 40),
-            title: const Text('Take a photo'),
+            title: Text(context.s.takePhoto),
             onTap: () {
               Navigator.of(ctx).pop();
               _pickReceipt(ImageSource.camera);
@@ -140,7 +141,7 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
           ),
           ListTile(
             leading: const IconBadge(Icons.photo_library_rounded, size: 40),
-            title: const Text('Choose from gallery'),
+            title: Text(context.s.chooseGallery),
             onTap: () {
               Navigator.of(ctx).pop();
               _pickReceipt(ImageSource.gallery);
@@ -242,7 +243,7 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
       if (alert != null) {
         Toast.show(alert, type: ToastType.warning, duration: const Duration(seconds: 5));
       } else {
-        Toast.saved(outcome, _editing == null ? (_recurring ? 'Recurring expense set up' : 'Expense added') : 'Changes saved');
+        Toast.saved(outcome, _editing == null ? (_recurring ? 'Recurring expense set up' : S.current.expenseAdded) : S.current.changesSaved);
       }
     } catch (e) {
       if (mounted) setState(() => _saving = false);
@@ -263,7 +264,7 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
         _initFrom(found, cats);
       } else {
         return Scaffold(
-          appBar: AppBar(title: const Text('Edit expense')),
+          appBar: AppBar(title: Text(context.s.editExpense)),
           body: Center(
             child: loading
                 ? const CircularProgressIndicator()
@@ -286,14 +287,14 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
     _categoryId ??= cats.isNotEmpty ? cats.first.id : CategoryModel.othersId;
     final isTemplate = _editing?.isRecurringTemplate ?? false;
     final title = _isEdit
-        ? (isTemplate ? 'Edit recurring' : 'Edit expense')
-        : (_recurring ? 'New recurring expense' : 'New expense');
+        ? (isTemplate ? context.s.editRecurring : context.s.editExpense)
+        : (_recurring ? context.s.newRecurring : context.s.newExpense);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(title),
         leading: IconButton(
-          tooltip: 'Close',
+          tooltip: context.s.close,
           icon: const Icon(Icons.close_rounded),
           onPressed: () => context.popOrGo(),
         ),
@@ -314,7 +315,7 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
             const SizedBox(height: Space.lg),
             AppTextField(
               controller: _desc,
-              label: 'What was it for?',
+              label: context.s.whatFor,
               hint: 'e.g. Dinner at Toit',
               icon: Icons.edit_note_rounded,
               maxLength: 60,
@@ -323,16 +324,16 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
               onChanged: (v) => _onDescriptionChanged(v, cats),
               // Amount, "Uber", Done → saved. The category is guessed as you type.
               onSubmitted: _saving ? null : (_) => _save(cats),
-              validator: (v) => (v?.trim().isEmpty ?? true) ? 'Add a short description' : null,
+              validator: (v) => (v?.trim().isEmpty ?? true) ? context.s.addDescription : null,
             ).entrance(context, index: 1),
             if (!_isEdit && _desc.text.isEmpty) _QuickPicks(onPick: _applyQuickPick),
             const SizedBox(height: Space.xl),
             Row(
               children: [
-                Text('Category', style: context.text.titleSmall),
+                Text(context.s.category, style: context.text.titleSmall),
                 if (_autoPicked) ...[
                   const SizedBox(width: Space.xs),
-                  const Pill('Auto-picked', tone: PillTone.primary, icon: Icons.auto_awesome_rounded),
+                  Pill(context.s.autoPicked, tone: PillTone.primary, icon: Icons.auto_awesome_rounded),
                 ],
                 const Spacer(),
                 TextButton.icon(
@@ -347,7 +348,7 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
                     }
                   },
                   icon: const Icon(Icons.add_rounded, size: 18),
-                  label: const Text('New'),
+                  label: Text(context.s.newLabel),
                 ),
               ],
             ),
@@ -362,24 +363,24 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
               }),
             ).entrance(context, index: 2),
             const SizedBox(height: Space.xl),
-            Text(_recurring ? 'Starts on' : 'Date', style: context.text.titleSmall),
+            Text(_recurring ? context.s.startsOn : context.s.date, style: context.text.titleSmall),
             const SizedBox(height: Space.sm),
             Wrap(
               spacing: Space.xs,
               runSpacing: Space.xs,
               children: [
                 ChoiceChipX(
-                  label: 'Today',
+                  label: context.s.today,
                   selected: Dates.isSameDay(_date, DateTime.now()),
                   onTap: () => setState(() => _date = DateTime.now()),
                 ),
                 ChoiceChipX(
-                  label: 'Yesterday',
+                  label: context.s.yesterday,
                   selected: Dates.isSameDay(_date, DateTime.now().subtract(const Duration(days: 1))),
                   onTap: () => setState(() => _date = DateTime.now().subtract(const Duration(days: 1))),
                 ),
                 ChoiceChipX(
-                  label: _isOther(_date) ? Dates.dayLabel(_date) : 'Pick a date',
+                  label: _isOther(_date) ? Dates.dayLabel(_date) : context.s.pickDate,
                   icon: Icons.calendar_month_rounded,
                   selected: _isOther(_date),
                   onTap: _pickDate,
@@ -398,8 +399,8 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
                         value: _recurring,
                         onChanged: (v) => setState(() => _recurring = v),
                         secondary: const IconBadge(Icons.autorenew_rounded, size: 40),
-                        title: const Text('Repeat this expense'),
-                        subtitle: const Text('Rent, subscriptions, bills…'),
+                        title: Text(context.s.repeatExpense),
+                        subtitle: Text(context.s.repeatHint),
                       ),
                     AnimatedSize(
                       duration: Motion.base,
@@ -432,7 +433,7 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
               child: _showNotes
                   ? AppTextField(
                       controller: _notes,
-                      label: 'Notes',
+                      label: context.s.notes,
                       icon: Icons.notes_rounded,
                       maxLines: 3,
                       maxLength: 200,
@@ -443,7 +444,7 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
                       child: TextButton.icon(
                         onPressed: () => setState(() => _showNotes = true),
                         icon: const Icon(Icons.add_comment_outlined, size: 18),
-                        label: const Text('Add a note'),
+                        label: Text(context.s.addNote),
                       ),
                     ),
             ),
@@ -454,7 +455,7 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(Space.gutter, Space.xs, Space.gutter, Space.sm),
           child: PrimaryButton(
-            label: _isEdit ? 'Save changes' : (_recurring ? 'Set up recurring' : 'Save expense'),
+            label: _isEdit ? context.s.saveChanges : (_recurring ? context.s.setUpRecurring : context.s.saveExpense),
             icon: Icons.check_rounded,
             loading: _saving,
             onPressed: () => _save(cats),
@@ -482,7 +483,7 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
               child: Image.memory(_newReceiptBytes!, width: 56, height: 56, fit: BoxFit.cover, cacheWidth: 168),
             ),
             const SizedBox(width: Space.sm),
-            const Expanded(child: Text('Receipt attached')),
+            Expanded(child: Text(context.s.receiptAttached)),
             IconButton(
               tooltip: 'Remove receipt',
               icon: Icon(Icons.close_rounded, color: c.negative),
@@ -502,7 +503,7 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
           children: [
             const IconBadge(Icons.receipt_long_rounded, size: 48),
             const SizedBox(width: Space.sm),
-            const Expanded(child: Text('Receipt attached')),
+            Expanded(child: Text(context.s.receiptAttached)),
             TextButton(
               onPressed: () => ReceiptViewer.show(
                 context,
@@ -521,7 +522,7 @@ class _AddExpenseScreenState extends ConsumerState<AddExpenseScreen> {
       );
     }
     return SecondaryButton(
-      label: 'Attach receipt',
+      label: context.s.attachReceipt,
       icon: Icons.add_a_photo_outlined,
       onPressed: _chooseReceiptSource,
     );

@@ -38,6 +38,7 @@ import '../data/groups_repository.dart';
 import '../domain/group_expense_model.dart';
 import '../domain/group_model.dart';
 import 'widgets/guest_sheets.dart';
+import '../../../core/l10n/strings.dart';
 
 class _ItemDraft {
   final TextEditingController name;
@@ -472,7 +473,7 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
       }
       Haptics.success();
       if (mounted) context.popOrGo('/groups/${group.groupId}');
-      Toast.saved(outcome, previous == null ? (isTemplate ? 'Recurring expense set up' : 'Expense added') : 'Changes saved');
+      Toast.saved(outcome, previous == null ? (isTemplate ? 'Recurring expense set up' : S.current.expenseAdded) : S.current.changesSaved);
     } catch (e) {
       if (mounted) setState(() => _saving = false);
       Toast.error(e);
@@ -483,12 +484,12 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
     showAppSheet<void>(
       context,
       builder: (ctx) => SheetBody(
-        title: 'Scan a bill',
+        title: context.s.scanBill,
         subtitle: 'Read on your phone. The photo is kept as the receipt.',
         children: [
           for (final (icon, label, source) in [
-            (Icons.photo_camera_rounded, 'Take a photo', ImageSource.camera),
-            (Icons.photo_library_rounded, 'Choose from gallery', ImageSource.gallery),
+            (Icons.photo_camera_rounded, context.s.takePhoto, ImageSource.camera),
+            (Icons.photo_library_rounded, context.s.chooseGallery, ImageSource.gallery),
           ])
             ListTile(
               leading: IconBadge(icon, size: 40),
@@ -653,14 +654,14 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
         title: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(_editing == null ? 'Add expense' : (isTemplate ? 'Edit recurring' : 'Edit expense')),
+            Text(_editing == null ? context.s.addExpense : (isTemplate ? context.s.editRecurring : context.s.editExpense)),
             Text(group.name, style: context.text.labelMedium, maxLines: 1, overflow: TextOverflow.ellipsis),
           ],
         ),
         actions: [
           if (!isTemplate)
             IconButton(
-              tooltip: 'Scan a bill',
+              tooltip: context.s.scanBill,
               icon: const Icon(Icons.document_scanner_rounded),
               onPressed: _scanning ? null : () => _chooseScanSource(group),
             ),
@@ -696,28 +697,28 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
                   child: TextButton.icon(
                     onPressed: _chooseCurrency,
                     icon: const Icon(Icons.currency_exchange_rounded, size: 18),
-                    label: Text(_foreign ? '$_currency · change' : 'Paid in another currency?'),
+                    label: Text(_foreign ? '$_currency · change' : context.s.otherCurrency),
                   ),
                 ),
                 if (_foreign) _rateCard(context, result),
                 const SizedBox(height: Space.md),
                 AppTextField(
                   controller: _desc,
-                  label: 'Description',
+                  label: context.s.description,
                   hint: 'e.g. Groceries at DMart',
                   icon: Icons.edit_note_rounded,
                   maxLength: 60,
                   textCapitalization: TextCapitalization.sentences,
                   onChanged: (v) => _onDescriptionChanged(v, cats),
-                  validator: (v) => (v?.trim().isEmpty ?? true) ? 'Add a short description' : null,
+                  validator: (v) => (v?.trim().isEmpty ?? true) ? context.s.addDescription : null,
                 ),
                 const SizedBox(height: Space.lg),
                 Row(
                   children: [
-                    Text('Category', style: context.text.titleSmall),
+                    Text(context.s.category, style: context.text.titleSmall),
                     if (_autoPicked) ...[
                       const SizedBox(width: Space.xs),
-                      const Pill('Auto-picked', tone: PillTone.primary, icon: Icons.auto_awesome_rounded),
+                      Pill(context.s.autoPicked, tone: PillTone.primary, icon: Icons.auto_awesome_rounded),
                     ],
                   ],
                 ),
@@ -743,24 +744,24 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
                   ),
                 ),
                 const SizedBox(height: Space.lg),
-                Text(isTemplate || _recurring ? 'Starts on' : 'Date', style: context.text.titleSmall),
+                Text(isTemplate || _recurring ? context.s.startsOn : context.s.date, style: context.text.titleSmall),
                 const SizedBox(height: Space.xs),
                 Wrap(
                   spacing: Space.xs,
                   runSpacing: Space.xs,
                   children: [
                     ChoiceChipX(
-                      label: 'Today',
+                      label: context.s.today,
                       selected: Dates.isSameDay(_date, DateTime.now()),
                       onTap: () => setState(() => _date = DateTime.now()),
                     ),
                     ChoiceChipX(
-                      label: 'Yesterday',
+                      label: context.s.yesterday,
                       selected: Dates.isSameDay(_date, DateTime.now().subtract(const Duration(days: 1))),
                       onTap: () => setState(() => _date = DateTime.now().subtract(const Duration(days: 1))),
                     ),
                     ChoiceChipX(
-                      label: _otherDay ? Dates.dayLabel(_date) : 'Pick a date',
+                      label: _otherDay ? Dates.dayLabel(_date) : context.s.pickDate,
                       icon: Icons.calendar_month_rounded,
                       selected: _otherDay,
                       onTap: () async {
@@ -777,7 +778,7 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
                   ],
                 ),
                 const SizedBox(height: Space.lg),
-                Text('Paid by', style: context.text.titleSmall),
+                Text(context.s.paidBy, style: context.text.titleSmall),
                 const SizedBox(height: Space.xs),
                 SizedBox(
                   height: 92,
@@ -799,18 +800,18 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
                   ),
                 ),
                 const SizedBox(height: Space.lg),
-                Text('Split', style: context.text.titleSmall),
+                Text(context.s.split, style: context.text.titleSmall),
                 const SizedBox(height: Space.xs),
                 SizedBox(
                   width: double.infinity,
                   child: SegmentedButton<SplitMode>(
                     showSelectedIcon: false,
-                    segments: const [
-                      ButtonSegment(value: SplitMode.equal, label: _SegLabel('Equal')),
-                      ButtonSegment(value: SplitMode.shares, label: _SegLabel('Shares')),
-                      ButtonSegment(value: SplitMode.exact, label: _SegLabel('Exact')),
+                    segments: [
+                      ButtonSegment(value: SplitMode.equal, label: _SegLabel(context.s.splitEqual)),
+                      ButtonSegment(value: SplitMode.shares, label: _SegLabel(context.s.splitShares)),
+                      ButtonSegment(value: SplitMode.exact, label: _SegLabel(context.s.splitExact)),
                       ButtonSegment(value: SplitMode.percent, label: _SegLabel('%')),
-                      ButtonSegment(value: SplitMode.itemized, label: _SegLabel('Items')),
+                      ButtonSegment(value: SplitMode.itemized, label: _SegLabel(context.s.splitItems)),
                     ],
                     selected: {_mode},
                     onSelectionChanged: (s) => setState(() {
@@ -840,7 +841,7 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
                             value: _recurring,
                             onChanged: (v) => setState(() => _recurring = v),
                             secondary: const IconBadge(Icons.autorenew_rounded, size: 40),
-                            title: const Text('Repeat this expense'),
+                            title: Text(context.s.repeatExpense),
                             subtitle: const Text('Rent, Wi-Fi, maid…'),
                           ),
                         if (_recurring)
@@ -866,7 +867,7 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
                 const SizedBox(height: Space.md),
                 AppTextField(
                   controller: _notes,
-                  label: 'Notes (optional)',
+                  label: context.s.notesOptional,
                   icon: Icons.notes_rounded,
                   maxLines: 2,
                   maxLength: 200,
@@ -881,7 +882,7 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(Space.gutter, Space.xs, Space.gutter, Space.sm),
           child: PrimaryButton(
-            label: _editing == null ? 'Save expense' : 'Save changes',
+            label: _editing == null ? context.s.saveExpense : context.s.saveChanges,
             icon: Icons.check_rounded,
             loading: _saving,
             onPressed: () => _save(group, cats),
@@ -1221,7 +1222,7 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
             else
               const IconBadge(Icons.receipt_long_rounded, size: 48),
             const SizedBox(width: Space.sm),
-            const Expanded(child: Text('Receipt attached')),
+            Expanded(child: Text(context.s.receiptAttached)),
             IconButton(
               tooltip: 'Remove receipt',
               icon: Icon(Icons.delete_outline_rounded, color: c.negative),
@@ -1236,16 +1237,16 @@ class _AddGroupExpenseScreenState extends ConsumerState<AddGroupExpenseScreen> {
       );
     }
     return SecondaryButton(
-      label: 'Attach receipt',
+      label: context.s.attachReceipt,
       icon: Icons.add_a_photo_outlined,
       onPressed: () => showAppSheet<void>(
         context,
         builder: (ctx) => SheetBody(
-          title: 'Add a receipt',
+          title: context.s.addReceipt,
           children: [
             for (final (icon, label, source) in [
-              (Icons.photo_camera_rounded, 'Take a photo', ImageSource.camera),
-              (Icons.photo_library_rounded, 'Choose from gallery', ImageSource.gallery),
+              (Icons.photo_camera_rounded, context.s.takePhoto, ImageSource.camera),
+              (Icons.photo_library_rounded, context.s.chooseGallery, ImageSource.gallery),
             ])
               ListTile(
                 leading: IconBadge(icon, size: 40),

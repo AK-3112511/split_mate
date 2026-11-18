@@ -2,7 +2,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:material_ui/material_ui.dart';
+import '../../../core/l10n/strings.dart';
 import '../../../core/legal.dart';
+import '../../../core/security/app_lock.dart';
+import '../../../core/settings/device_settings.dart';
 import '../../../core/theme/aurora_colors.dart';
 import '../../../core/theme/theme_mode_provider.dart';
 import '../../../core/theme/tokens.dart';
@@ -82,7 +85,7 @@ class ProfileScreen extends ConsumerWidget {
             children: [
               Padding(
                 padding: const EdgeInsets.fromLTRB(Space.gutter, Space.md, Space.gutter, 0),
-                child: Text('Profile', style: context.text.headlineLarge),
+                child: Text(context.s.profile, style: context.text.headlineLarge),
               ),
               const SizedBox(height: Space.lg),
               Center(
@@ -127,32 +130,33 @@ class ProfileScreen extends ConsumerWidget {
                 padding: const EdgeInsets.symmetric(horizontal: Space.gutter),
                 child: AppCard(
                   child: Row(children: [
-                    stat('Groups', groups),
-                    stat('Friends', friends),
-                    stat('This month', thisMonth),
+                    stat(context.s.statGroups, groups),
+                    stat(context.s.statFriends, friends),
+                    stat(context.s.statThisMonth, thisMonth),
                   ]),
                 ),
               ),
-              section('Account', [
-                tile(Icons.badge_rounded, 'Personal info', subtitle: 'Name, friend code, UPI ID', onTap: () => context.push('/personal-info')),
-                tile(Icons.notifications_rounded, 'Notifications',
+              section(context.s.account, [
+                tile(Icons.badge_rounded, context.s.personalInfo,
+                    subtitle: context.s.personalInfoSub, onTap: () => context.push('/personal-info')),
+                tile(Icons.notifications_rounded, context.s.notifications,
                     onTap: () => context.push('/notifications'),
                     trailing: unread > 0 ? Badge(label: Text('$unread')) : null),
                 if (isPasswordUser)
-                  tile(Icons.lock_reset_rounded, 'Change password', onTap: () => _changePassword(context, ref)),
-                tile(Icons.privacy_tip_rounded, 'Privacy policy',
+                  tile(Icons.lock_reset_rounded, context.s.changePassword, onTap: () => _changePassword(context, ref)),
+                tile(Icons.privacy_tip_rounded, context.s.privacyPolicy,
                     trailing: Icon(Icons.open_in_new_rounded, color: c.textMuted), onTap: openPrivacyPolicy),
               ], 1),
-              section('Money', [
-                tile(Icons.category_rounded, 'Categories & budgets', onTap: () => context.push('/categories')),
-                tile(Icons.autorenew_rounded, 'Recurring expenses', onTap: () => context.push('/recurring')),
-                tile(Icons.receipt_long_rounded, 'Receipts', onTap: () => context.push('/receipts')),
-                tile(Icons.auto_awesome_rounded, 'Monthly recap',
-                    subtitle: 'Your ${Dates.monthName(DateTime(now.year, now.month - 1))} in review',
+              section(context.s.money, [
+                tile(Icons.category_rounded, context.s.categoriesBudgets, onTap: () => context.push('/categories')),
+                tile(Icons.autorenew_rounded, context.s.recurringExpenses, onTap: () => context.push('/recurring')),
+                tile(Icons.receipt_long_rounded, context.s.receipts, onTap: () => context.push('/receipts')),
+                tile(Icons.auto_awesome_rounded, context.s.monthlyRecap,
+                    subtitle: context.s.monthInReview(Dates.monthName(DateTime(now.year, now.month - 1))),
                     onTap: () => context.push('/recap')),
-                tile(Icons.ios_share_rounded, 'Export my data', subtitle: 'CSV or PDF', onTap: () => showExportSheet(context)),
+                tile(Icons.ios_share_rounded, context.s.exportData, subtitle: 'CSV / PDF', onTap: () => showExportSheet(context)),
               ], 2),
-              section('Appearance', [
+              section(context.s.appearance, [
                 Padding(
                   padding: const EdgeInsets.all(Space.md),
                   child: Column(
@@ -161,35 +165,90 @@ class ProfileScreen extends ConsumerWidget {
                       Row(children: [
                         const IconBadge(Icons.palette_rounded, size: 40),
                         const SizedBox(width: Space.md),
-                        Text('Theme', style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w700)),
+                        Text(context.s.theme, style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w700)),
                       ]),
                       const SizedBox(height: Space.sm),
                       SegmentedButton<ThemeMode>(
                         showSelectedIcon: false,
-                        segments: const [
-                          ButtonSegment(value: ThemeMode.system, label: Text('Auto'), icon: Icon(Icons.brightness_auto_rounded, size: 18)),
-                          ButtonSegment(value: ThemeMode.light, label: Text('Light'), icon: Icon(Icons.light_mode_rounded, size: 18)),
-                          ButtonSegment(value: ThemeMode.dark, label: Text('Dark'), icon: Icon(Icons.dark_mode_rounded, size: 18)),
+                        segments: [
+                          ButtonSegment(
+                              value: ThemeMode.system,
+                              label: Text(context.s.themeAuto),
+                              icon: const Icon(Icons.brightness_auto_rounded, size: 18)),
+                          ButtonSegment(
+                              value: ThemeMode.light,
+                              label: Text(context.s.themeLight),
+                              icon: const Icon(Icons.light_mode_rounded, size: 18)),
+                          ButtonSegment(
+                              value: ThemeMode.dark,
+                              label: Text(context.s.themeDark),
+                              icon: const Icon(Icons.dark_mode_rounded, size: 18)),
                         ],
                         selected: {ref.watch(themeModeProvider)},
                         onSelectionChanged: (s) => ref.read(themeModeProvider.notifier).set(s.first),
+                      ),
+                      const SizedBox(height: Space.lg),
+                      Row(children: [
+                        const IconBadge(Icons.translate_rounded, size: 40),
+                        const SizedBox(width: Space.md),
+                        Text(context.s.language, style: context.text.bodyLarge?.copyWith(fontWeight: FontWeight.w700)),
+                      ]),
+                      const SizedBox(height: Space.sm),
+                      SegmentedButton<AppLanguage>(
+                        showSelectedIcon: false,
+                        segments: [
+                          for (final l in AppLanguage.values)
+                            ButtonSegment(
+                              value: l,
+                              label: FittedBox(fit: BoxFit.scaleDown, child: Text(l.label, maxLines: 1)),
+                            ),
+                        ],
+                        selected: {ref.watch(appLanguageProvider)},
+                        onSelectionChanged: (s) => ref.read(appLanguageProvider.notifier).set(s.first),
                       ),
                     ],
                   ),
                 ),
               ], 3),
+              section(context.s.privacySecurity, [
+                SwitchListTile(
+                  secondary: const IconBadge(Icons.fingerprint_rounded, size: 40),
+                  title: Text(context.s.appLock),
+                  subtitle: Text(context.s.appLockSub),
+                  value: ref.watch(appLockEnabledProvider),
+                  onChanged: (on) async {
+                    if (on) {
+                      if (!await AppLock.available()) {
+                        Toast.show(S.current.appLockNoDevice, type: ToastType.error);
+                        return;
+                      }
+                      // Prove it works before relying on it.
+                      if (!await AppLock.authenticate(S.current.unlockReason)) return;
+                    }
+                    await ref.read(appLockEnabledProvider.notifier).set(on);
+                    Toast.success(on ? S.current.appLockOn : S.current.appLockOff);
+                  },
+                ),
+                SwitchListTile(
+                  secondary: const IconBadge(Icons.bug_report_rounded, size: 40),
+                  title: Text(context.s.crashReports),
+                  subtitle: Text(context.s.crashReportsSub),
+                  value: ref.watch(crashReportsProvider),
+                  onChanged: (on) => ref.read(crashReportsProvider.notifier).set(on),
+                ),
+              ], 4),
               Padding(
                 padding: const EdgeInsets.fromLTRB(Space.gutter, Space.xl, Space.gutter, 0),
                 child: SecondaryButton(
-                  label: 'Sign out',
+                  label: context.s.signOut,
                   icon: Icons.logout_rounded,
                   color: c.negative,
                   onPressed: () async {
                     final ok = await confirmAction(
                       context,
-                      title: 'Sign out?',
-                      message: 'Your data stays safe in your account.',
-                      confirmLabel: 'Sign out',
+                      title: context.s.signOutQ,
+                      message: context.s.signOutBody,
+                      confirmLabel: context.s.signOut,
                       icon: Icons.logout_rounded,
                     );
                     if (!ok) return;
@@ -206,7 +265,7 @@ class ProfileScreen extends ConsumerWidget {
                 child: TextButton(
                   onPressed: () => context.push('/delete-account'),
                   style: TextButton.styleFrom(foregroundColor: c.negative),
-                  child: const Text('Delete account'),
+                  child: Text(context.s.deleteAccount),
                 ),
               ),
               const SizedBox(height: Space.lg),
