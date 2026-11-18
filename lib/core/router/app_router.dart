@@ -16,6 +16,7 @@ import '../../features/groups/presentation/add_group_expense_screen.dart';
 import '../../features/groups/presentation/group_detail_screen.dart';
 import '../../features/groups/presentation/group_list_screen.dart';
 import '../../features/groups/presentation/join_group_screen.dart';
+import '../../features/groups/presentation/trip_summary_screen.dart';
 import '../../features/home/presentation/home_screen.dart';
 import '../../features/notifications/presentation/notifications_screen.dart';
 import '../../features/personal_expenses/presentation/add_expense_screen.dart';
@@ -165,6 +166,11 @@ final routerProvider = Provider<GoRouter>((ref) {
                         startRecurring: s.uri.queryParameters['recurring'] == '1',
                         startScan: s.uri.queryParameters['scan'] == '1',
                       ),
+                    ),
+                    GoRoute(
+                      path: 'trip',
+                      parentNavigatorKey: rootNavigatorKey,
+                      builder: (_, s) => TripSummaryScreen(groupId: s.pathParameters['groupId']!),
                     ),
                     GoRoute(
                       path: 'expense/:expenseId/edit',

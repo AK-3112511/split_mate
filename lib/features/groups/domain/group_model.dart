@@ -15,6 +15,13 @@ class GroupModel {
   /// People who aren't on SplitMate yet, by guest id.
   final Map<String, GuestMember> guests;
 
+  /// Trip mode: the trip's first and last day (both set, or neither).
+  final DateTime? tripStart;
+  final DateTime? tripEnd;
+
+  /// Currency new expenses start in (e.g. THB for a Bangkok trip). Null = ₹.
+  final String? currency;
+
   const GroupModel({
     required this.groupId,
     required this.name,
@@ -25,7 +32,29 @@ class GroupModel {
     this.inviteCode,
     this.isDeleted = false,
     this.guests = const {},
+    this.tripStart,
+    this.tripEnd,
+    this.currency,
   });
+
+  bool get isTrip => tripStart != null && tripEnd != null;
+
+  /// Inclusive number of days in the trip.
+  int get tripDays => isTrip ? DateTime(tripEnd!.year, tripEnd!.month, tripEnd!.day)
+          .difference(DateTime(tripStart!.year, tripStart!.month, tripStart!.day))
+          .inDays + 1 : 0;
+
+  /// True once the trip's last day is over.
+  bool tripOver(DateTime now) => isTrip && DateTime(now.year, now.month, now.day).isAfter(tripEnd!);
+
+  /// 1-based day of the trip today, or null outside it.
+  int? tripDay(DateTime now) {
+    if (!isTrip) return null;
+    final today = DateTime(now.year, now.month, now.day);
+    final start = DateTime(tripStart!.year, tripStart!.month, tripStart!.day);
+    final d = today.difference(start).inDays + 1;
+    return d >= 1 && d <= tripDays ? d : null;
+  }
 
   bool isAdmin(String uid) => admins.contains(uid);
   bool isMember(String uid) => members.contains(uid);
@@ -45,6 +74,9 @@ class GroupModel {
         'createdBy': createdBy,
         'inviteCode': inviteCode,
         'isDeleted': isDeleted,
+        if (tripStart != null) 'tripStart': Timestamp.fromDate(tripStart!),
+        if (tripEnd != null) 'tripEnd': Timestamp.fromDate(tripEnd!),
+        if (currency != null) 'currency': currency,
       };
 
   factory GroupModel.fromMap(Map<String, dynamic> map, String id) {
@@ -68,6 +100,9 @@ class GroupModel {
           for (final e in (map['guests'] as Map).entries)
             if (e.value is Map) e.key.toString(): GuestMember.fromMap(e.key.toString(), Map<String, dynamic>.from(e.value as Map)),
       },
+      tripStart: readDate(map['tripStart']),
+      tripEnd: readDate(map['tripEnd']),
+      currency: map['currency'] is String && (map['currency'] as String).length == 3 ? map['currency'] as String : null,
     );
   }
 }

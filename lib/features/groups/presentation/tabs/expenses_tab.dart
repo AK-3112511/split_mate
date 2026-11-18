@@ -11,6 +11,7 @@ import '../../data/group_expenses_repository.dart';
 import '../../domain/group_expense_model.dart';
 import '../../domain/group_model.dart';
 import '../widgets/group_expense_widgets.dart';
+import '../widgets/trip_widgets.dart';
 
 class ExpensesTab extends ConsumerStatefulWidget {
   final GroupModel group;
@@ -46,6 +47,7 @@ class _ExpensesTabState extends ConsumerState<ExpensesTab> with AutomaticKeepAli
             data: (all) {
               if (all.isEmpty) {
                 return [
+                  if (widget.group.isTrip) SliverToBoxAdapter(child: TripCard(group: widget.group)),
                   SliverToBoxAdapter(
                     child: EmptyState(
                       icon: Icons.receipt_long_rounded,
@@ -65,6 +67,7 @@ class _ExpensesTabState extends ConsumerState<ExpensesTab> with AutomaticKeepAli
               }
               final keys = days.keys.toList()..sort((a, b) => b.compareTo(a));
               return [
+                if (widget.group.isTrip) SliverToBoxAdapter(child: TripCard(group: widget.group)),
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(Space.gutter, Space.md, Space.gutter, Space.xs),

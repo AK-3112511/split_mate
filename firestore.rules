@@ -168,6 +168,20 @@ service cloud.firestore {
         allow read: if isMember(gid);
         allow create, update: if isMember(gid) && validExpense();
         allow delete: if false;
+
+        // Comments: members read and write their own; only the author deletes.
+        match /comments/{cid} {
+          allow read: if isMember(gid);
+          allow create: if isMember(gid)
+            && request.resource.data.keys().hasOnly(['authorUid', 'authorName', 'text', 'createdAt'])
+            && request.resource.data.authorUid == me()
+            && request.resource.data.text is string
+            && request.resource.data.text.size() > 0
+            && request.resource.data.text.size() <= 500
+            && request.resource.data.createdAt == request.time;
+          allow update: if false;
+          allow delete: if isMember(gid) && resource.data.authorUid == me();
+        }
       }
 
       // Activity timeline (S-07): members only, attributed to the writer, immutable.

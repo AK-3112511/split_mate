@@ -1,11 +1,14 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:material_ui/material_ui.dart';
+import '../../../../core/domain/split_calculator.dart';
 import '../../../../core/theme/app_theme.dart';
 import '../../../../core/theme/aurora_colors.dart';
 import '../../../../core/theme/tokens.dart';
+import '../../../../core/utils/currency.dart';
 import '../../../../core/utils/dates.dart';
 import '../../../../core/utils/money.dart';
+import '../../../../core/utils/write_helper.dart';
 import '../../../../shared_widgets/amount_text.dart';
 import '../../../../shared_widgets/avatars.dart';
 import '../../../../shared_widgets/bits.dart';
@@ -20,6 +23,7 @@ import '../../../categories/domain/category_resolver.dart';
 import '../../../friends/data/friends_repository.dart';
 import '../../../receipts/data/receipts_repository.dart';
 import '../../data/group_expenses_repository.dart';
+import '../../domain/expense_comment.dart';
 import '../../domain/group_activity_model.dart';
 import '../../domain/group_expense_model.dart';
 import '../../domain/group_model.dart';
@@ -63,7 +67,10 @@ class GroupExpenseTile extends ConsumerWidget {
           style: context.text.bodyLarge?.copyWith(color: c.positive, fontWeight: FontWeight.w700, fontFeatures: AppTheme.tabular));
     } else {
       title = expense.description.isEmpty ? cat.name : expense.description;
-      subtitle = '$payer paid ${Money.format(expense.amount)}';
+      final fx = expense.fx;
+      subtitle = fx == null
+          ? '$payer paid ${Money.format(expense.amount)}'
+          : '$payer paid ${Currencies.format(fx.amount, fx.currency)} · ${Money.format(expense.amount)}';
       final myShare = expense.shareOf(me);
       final lent = expense.payerUid == me ? expense.amount - myShare : 0.0;
       final borrowed = expense.payerUid == me ? 0.0 : myShare;
@@ -112,6 +119,12 @@ class GroupExpenseTile extends ConsumerWidget {
                       if (expense.hasReceipt) ...[
                         Icon(Icons.receipt_long_rounded, size: 14, color: c.textMuted),
                         const SizedBox(width: 4),
+                      ],
+                      if (expense.commentCount > 0) ...[
+                        Icon(Icons.chat_bubble_outline_rounded, size: 14, color: c.textMuted),
+                        const SizedBox(width: 2),
+                        Text('${expense.commentCount}', style: context.text.bodySmall),
+                        const SizedBox(width: 6),
                       ],
                       Flexible(
                         child: Text(subtitle, style: context.text.bodySmall, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -182,6 +195,16 @@ class _GroupExpenseDetail extends ConsumerWidget {
         if (!expense.isPayment) ...[
           const SizedBox(height: Space.xxs),
           Center(child: Text('Paid by $payer · ${expense.splitMode.label.toLowerCase()}', style: context.text.bodySmall)),
+          if (expense.fx != null)
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  '${Currencies.format(expense.fx!.amount, expense.fx!.currency)} at ₹${expense.fx!.rate.toStringAsFixed(expense.fx!.rate < 1 ? 6 : 4).replaceFirst(RegExp(r'\.?0+$'), '')} per ${expense.fx!.currency}',
+                  style: context.text.bodySmall,
+                ),
+              ),
+            ),
           const SizedBox(height: Space.lg),
           Text('Split', style: context.text.titleSmall),
           const SizedBox(height: Space.xs),
@@ -193,10 +216,16 @@ class _GroupExpenseDetail extends ConsumerWidget {
                   UserAvatar(uid: s.key, size: 32),
                   const SizedBox(width: Space.sm),
                   Expanded(
-                    child: Text(ref.watch(memberNameProvider(s.key)),
-                        style: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(ref.watch(memberNameProvider(s.key)),
+                            style: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis),
+                        if (_sharesNote(expense, s.key) case final note?) Text(note, style: context.text.bodySmall),
+                      ],
+                    ),
                   ),
                   if (s.key != expense.payerUid)
                     Padding(
@@ -213,7 +242,7 @@ class _GroupExpenseDetail extends ConsumerWidget {
           if (expense.items != null && expense.items!.isNotEmpty) ...[
             const SizedBox(height: Space.md),
             Text('Items', style: context.text.titleSmall),
-            for (final item in expense.items!)
+            for (final item in expense.fx?.items ?? expense.items!)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 4),
                 child: Row(
@@ -221,7 +250,8 @@ class _GroupExpenseDetail extends ConsumerWidget {
                     Expanded(child: Text(item.name, style: context.text.bodyMedium, maxLines: 1, overflow: TextOverflow.ellipsis)),
                     AvatarStack(uids: item.memberUids, size: 22),
                     const SizedBox(width: Space.xs),
-                    Text(Money.format(item.amount), style: context.text.bodyMedium?.copyWith(fontFeatures: AppTheme.tabular)),
+                    Text(Currencies.format(item.amount, expense.fx?.currency),
+                        style: context.text.bodyMedium?.copyWith(fontFeatures: AppTheme.tabular)),
                   ],
                 ),
               ),
@@ -238,7 +268,7 @@ class _GroupExpenseDetail extends ConsumerWidget {
                         style: context.text.bodyMedium,
                       ),
                     ),
-                    Text(Money.format(expense.itemsExtra!),
+                    Text(Currencies.format(expense.fx?.itemsExtra ?? expense.itemsExtra!, expense.fx?.currency),
                         style: context.text.bodyMedium?.copyWith(fontFeatures: AppTheme.tabular)),
                   ],
                 ),
@@ -262,6 +292,10 @@ class _GroupExpenseDetail extends ConsumerWidget {
               title: expense.description,
             ),
           ),
+        ],
+        if (group.isMember(me) || expense.commentCount > 0) ...[
+          const SizedBox(height: Space.lg),
+          _Comments(group: group, expense: expense, canWrite: group.isMember(me)),
         ],
         if (activity.isNotEmpty) ...[
           const SizedBox(height: Space.lg),
@@ -320,6 +354,160 @@ class _GroupExpenseDetail extends ConsumerWidget {
               }
             },
           ),
+      ],
+    );
+  }
+}
+
+/// "2 shares · +₹50" under a person in a by-shares split.
+String? _sharesNote(GroupExpenseModel e, String uid) {
+  final w = e.shareWeights;
+  if (e.splitMode != SplitMode.shares || w == null) return null;
+  final shares = w[uid] ?? 0;
+  final parts = <String>[
+    if (shares > 0) '${shares == shares.roundToDouble() ? shares.toInt() : shares} ${shares == 1 ? 'share' : 'shares'}',
+    if ((e.fx?.adjustments ?? e.adjustments)?[uid] case final a? when a > 0)
+      '+${Currencies.format(a, e.fx?.currency)}',
+  ];
+  return parts.isEmpty ? null : parts.join(' · ');
+}
+
+/// Comments on an expense ("includes tip"). Long-press your own to delete it.
+class _Comments extends ConsumerStatefulWidget {
+  final GroupModel group;
+  final GroupExpenseModel expense;
+  final bool canWrite;
+  const _Comments({required this.group, required this.expense, required this.canWrite});
+
+  @override
+  ConsumerState<_Comments> createState() => _CommentsState();
+}
+
+class _CommentsState extends ConsumerState<_Comments> {
+  final _text = TextEditingController();
+  bool _sending = false;
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send() async {
+    if (_sending || _text.text.trim().isEmpty) return;
+    setState(() => _sending = true);
+    try {
+      final outcome = await ref
+          .read(groupExpensesRepositoryProvider)
+          .addComment(group: widget.group, expense: widget.expense, text: _text.text);
+      _text.clear();
+      if (outcome == WriteOutcome.pending) Toast.saved(outcome, 'Comment added');
+    } catch (e) {
+      Toast.error(e);
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  Future<void> _delete(ExpenseComment comment) async {
+    final ok = await confirmAction(
+      context,
+      title: 'Delete your comment?',
+      message: '"${comment.text.length > 60 ? '${comment.text.substring(0, 60)}…' : comment.text}"',
+      confirmLabel: 'Delete',
+      destructive: true,
+    );
+    if (!ok) return;
+    try {
+      await ref.read(groupExpensesRepositoryProvider).deleteComment(
+            groupId: widget.group.groupId,
+            expenseId: widget.expense.expenseId,
+            commentId: comment.id,
+          );
+    } catch (e) {
+      Toast.error(e);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final c = context.aurora;
+    final me = ref.watch(currentUidProvider) ?? '';
+    final comments = ref.watch(expenseCommentsProvider((groupId: widget.group.groupId, expenseId: widget.expense.expenseId)));
+    final list = comments.valueOrNull ?? const <ExpenseComment>[];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(list.isEmpty ? 'Comments' : 'Comments · ${list.length}', style: context.text.titleSmall),
+        const SizedBox(height: Space.xs),
+        if (comments.isLoading && list.isEmpty)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: Space.sm),
+            child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+          )
+        else if (list.isEmpty)
+          Text('Add context everyone sees, like "includes tip".', style: context.text.bodySmall),
+        for (final cm in list)
+          GestureDetector(
+            onLongPress: cm.authorUid == me ? () => _delete(cm) : null,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  UserAvatar(uid: cm.authorUid, size: 28),
+                  const SizedBox(width: Space.sm),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text.rich(
+                          TextSpan(children: [
+                            TextSpan(
+                              text: cm.authorUid == me ? 'You' : ref.watch(memberNameProvider(cm.authorUid)),
+                              style: context.text.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+                            ),
+                            TextSpan(text: '  ${Dates.relative(cm.createdAt)}', style: context.text.bodySmall),
+                          ]),
+                        ),
+                        Text(cm.text, style: context.text.bodyMedium),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        if (widget.canWrite) ...[
+          const SizedBox(height: Space.xs),
+          Row(
+            children: [
+              Expanded(
+                child: TextField(
+                  controller: _text,
+                  maxLength: ExpenseComment.maxLength,
+                  minLines: 1,
+                  maxLines: 4,
+                  textCapitalization: TextCapitalization.sentences,
+                  onChanged: (_) => setState(() {}),
+                  decoration: const InputDecoration(
+                    isDense: true,
+                    hintText: 'Add a comment',
+                    counterText: '',
+                  ),
+                ),
+              ),
+              const SizedBox(width: Space.xs),
+              IconButton.filled(
+                tooltip: 'Send',
+                onPressed: _sending || _text.text.trim().isEmpty ? null : _send,
+                icon: _sending
+                    ? SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: c.onPop))
+                    : const Icon(Icons.send_rounded),
+              ),
+            ],
+          ),
+        ],
       ],
     );
   }
