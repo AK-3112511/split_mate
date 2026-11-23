@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:material_ui/material_ui.dart';
@@ -29,6 +31,17 @@ class AppLock {
       return false;
     }
   }
+
+  static const _privacy = MethodChannel('splitmate/privacy');
+
+  /// Blank card in the recent-apps screen (Android), so balances don't show
+  /// there while the app is locked.
+  static Future<void> hidePreview(bool hidden) async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    try {
+      await _privacy.invokeMethod('hidePreview', hidden);
+    } catch (_) {}
+  }
 }
 
 /// Locks after the app has been in the background this long (and on start).
@@ -53,6 +66,7 @@ class _AppLockGateState extends ConsumerState<AppLockGate> with WidgetsBindingOb
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    AppLock.hidePreview(_locked);
     if (_locked) WidgetsBinding.instance.addPostFrameCallback((_) => _unlock());
   }
 
@@ -100,6 +114,7 @@ class _AppLockGateState extends ConsumerState<AppLockGate> with WidgetsBindingOb
   Widget build(BuildContext context) {
     // Turning the lock off elsewhere unlocks straight away.
     ref.listen<bool>(appLockEnabledProvider, (_, on) {
+      AppLock.hidePreview(on);
       if (!on && _locked) setState(() => _locked = false);
     });
     return Stack(

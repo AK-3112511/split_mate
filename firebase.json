@@ -21,6 +21,11 @@
   "firestore": {
     "rules": "firestore.rules"
   },
+  "emulators": {
+    "firestore": { "port": 8080 },
+    "ui": { "enabled": false },
+    "singleProjectMode": true
+  },
   "hosting": {
     "public": "hosting",
     "cleanUrls": true,

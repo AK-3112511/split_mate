@@ -258,6 +258,17 @@ Test group **TEST R2** (created by B, A invited) plus a solo **TEST Solo** for a
 - **Your steps**: `firebase deploy --only hosting` for the updated privacy policy; open Crashlytics once in the Firebase console so reports show up there.
 - Version 2.5.0+11.
 
+### Security batch: App Check, hidden preview, rules tests — ✅ 2026-11-23
+- **App Check** (`firebase_app_check`, Play Integrity in release builds, debug provider in debug builds): the app now sends a token with every Firebase request proving it is the real SplitMate on a real phone. Nothing is enforced yet, so nothing changes for users until enforcement is switched on in the console (steps below). R8 keep rule for `com.google.firebase.appcheck`.
+- **Recent-apps preview hidden while app lock is on** (`MainActivity` method channel `splitmate/privacy`): Android 13+ uses `setRecentsScreenshotEnabled(false)`, which keeps screenshots working; Android 12 and below fall back to `FLAG_SECURE`, which also blocks screenshots in the app. Follows the app lock switch.
+- **Firestore rules tests** (`firestore_tests/`, Node + `@firebase/rules-unit-testing` on the emulator): 34 tests covering the whole verification matrix in AUDIT.md plus comments, activity, invites, guests, nicknames, private data and friend codes. All pass against the deployed rules file. Loosening the join-code check or notification reads makes them fail (checked). Command in AUDIT.md. `firebase.json` gained an emulator block.
+- **Privacy policy** (`hosting/privacy.html`, needs `firebase deploy --only hosting`): App Check / Play Integrity, and the hidden preview.
+- Tests: 150 Flutter tests pass, analyze clean.
+- **Verified on device** (release build, 2.6.0): app starts and loads your data with App Check active but not enforced; with app lock on (after a real fingerprint match) the recent-apps card is blank; with it off the preview is back. App lock left off.
+- **Not verified**: App Check tokens being accepted (needs the console steps first), Android 12 and below.
+- **Your steps**: (1) Google Cloud console → project splitmate-6b600 → APIs & Services → enable "Play Integrity API". (2) Firebase console → App Check → Apps → register the Android app with Play Integrity and the release key's SHA-256; in its advanced settings choose "exclusively outside Google Play". (3) Watch App Check → APIs → Cloud Firestore metrics for a week or two after people update; enforce only when almost all requests are verified, because older app versions (2.5.0 and earlier) send no token and would be cut off. (4) `firebase deploy --only hosting`.
+- Version 2.6.0+12.
+
 ## Manual end-to-end checklist (Phase 7)
 
 Two test accounts (A, B) on an Android emulator.

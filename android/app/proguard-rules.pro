@@ -19,3 +19,4 @@
 -keep class * implements com.google.firebase.components.ComponentRegistrar { <init>(); }
 -keep class com.google.firebase.crashlytics.** { *; }
 -keep class com.google.firebase.sessions.** { *; }
+-keep class com.google.firebase.appcheck.** { *; }
