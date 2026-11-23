@@ -65,3 +65,6 @@ Desktop.ini
 
 # Firebase CLI deploy cache
 .firebase/
+
+# Firestore rules tests
+firestore_tests/node_modules/

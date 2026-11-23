@@ -193,9 +193,22 @@ Severity: **P0** = wrong money / crash / security · **P1** = broken flow · **P
 
 | E-14 | P2 | Delete-account confirmation asked for a password on an account signed in with Google (both methods linked) | profile/presentation/delete_account_screen.dart | ✅ |
 
-## Security rules — manual verification matrix
+## Security rules — verification matrix
 
-The Firebase emulator needs Java (not installed on this machine), so rules were checked by review against every write path in the code. Before deploying, run these with the emulator or two test accounts (A = member, B = non-member):
+✅ Automated since 2026-11-23: `firestore_tests/rules.test.js` runs every row below (plus comments, activity, invites, guests, nicknames, private data and friend codes, 34 tests) against the Firestore emulator. Run from the repo root with Java 21 (Android Studio's `jbr`) on the path:
+
+```
+firebase emulators:exec --only firestore --project demo-splitmate-rules "npm --prefix firestore_tests test"
+```
+
+(First time: `npm --prefix firestore_tests install`.) Checked that the tests catch a loosened rule: dropping the join-code check or opening notifications to everyone makes R2, R3 and R9 fail.
+
+| ID | Sev | Issue | Status |
+|---|---|---|---|
+| S-10 | P2 | Anyone with the API key from the APK could script reads/writes as a signed-in user | ✅ App Check (Play Integrity) sends tokens from v2.6.0; enforce in the console once metrics look right |
+| S-11 | P2 | Recent-apps screen shows balances while app lock is on | ✅ v2.6.0: preview hidden while app lock is on |
+
+A = member, B = non-member:
 
 | # | Action | Expected |
 |---|---|---|
